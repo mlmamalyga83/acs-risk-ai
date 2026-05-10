@@ -1,0 +1,43 @@
+# ============================================================
+# ACS ECG Detector — .gitignore
+# ============================================================
+
+# Данные
+data/raw/
+data/processed/
+data/uploads/
+data/external/
+
+# Виртуальное окружение
+ai_cardio_env/
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Модели
+*.pkl
+*.pt
+!models/.gitkeep
+
+# TensorBoard
+runs/
+logs/*.log
+
+# Среда
+.env
+.idea/
+.vscode/
+
+# Загрузки
+*.zip
+*.tar.gz
+
+# Mac
+.DS_Store

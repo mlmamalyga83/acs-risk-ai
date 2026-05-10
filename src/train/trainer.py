@@ -1,0 +1,137 @@
+# ============================================================
+# ACS ECG Detector — training loop
+# ============================================================
+
+import torch
+import torch.nn as nn
+import numpy as np
+from pathlib import Path
+from torch.utils.tensorboard import SummaryWriter
+from sklearn.metrics import roc_auc_score
+
+
+def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
+    """Обучает одну эпоху. Возвращает средний loss."""
+    model.train()
+    total_loss = 0.0
+    
+    for batch_x, batch_y, _ in loader:
+        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        optimizer.zero_grad()
+        
+        if scaler:
+            with torch.amp.autocast('cuda'):
+                outputs = model(batch_x)
+                loss = criterion(outputs, batch_y)
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            outputs = model(batch_x)
+            loss = criterion(outputs, batch_y)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+        
+        total_loss += loss.item()
+    
+    return total_loss / len(loader)
+
+
+def validate(model, loader, device):
+    """Валидация с агрегацией цикл→пациент. Возвращает AUC."""
+    model.eval()
+    all_probas, all_labels, all_pids = [], [], []
+    
+    with torch.no_grad():
+        for batch_x, batch_y, batch_pid in loader:
+            batch_x = batch_x.to(device)
+            outputs = model(batch_x)
+            all_probas.extend(torch.sigmoid(outputs).cpu().numpy())
+            all_labels.extend(batch_y.numpy())
+            all_pids.extend(batch_pid.numpy())
+    
+    return aggregate_cycle_predictions(np.array(all_probas), np.array(all_pids), np.array(all_labels))
+
+
+def aggregate_cycle_predictions(probas, pids, labels, method='mean'):
+    """Агрегирует цикловые предсказания → пациентские."""
+    unique_pids = np.unique(pids)
+    patient_probas, patient_labels = [], []
+    
+    for pid in unique_pids:
+        mask = pids == pid
+        patient_probas.append(np.mean(probas[mask]))
+        patient_labels.append(labels[mask][0])
+    
+    return roc_auc_score(np.array(patient_labels), np.array(patient_probas))
+
+
+def train_full(model, train_loader, val_loader, config, model_name='model'):
+    """Полный цикл обучения с Early Stopping и чекпоинтами."""
+    device = torch.device(config.get('device', 'cpu'))
+    model = model.to(device)
+    
+    pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 0.001),
+                                   weight_decay=config.get('weight_decay', 1e-4))
+    
+    steps_per_epoch = len(train_loader)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=config.get('learning_rate', 0.001),
+        epochs=config.get('epochs', 50), steps_per_epoch=steps_per_epoch,
+        pct_start=0.3, div_factor=10, final_div_factor=100
+    )
+    
+    scaler = torch.amp.GradScaler() if config.get('use_amp', False) and device.type == 'cuda' else None
+    writer = SummaryWriter(log_dir=f"runs/{model_name}")
+    
+    best_auc = 0.0
+    patience_counter = 0
+    
+    for epoch in range(config.get('epochs', 50)):
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scaler)
+        scheduler.step()
+        
+        val_auc = validate(model, val_loader, device)
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Metrics/AUC', val_auc, epoch)
+        
+        print(f"Эпоха {epoch+1:2d}/{config.get('epochs', 50)} | "
+              f"Train Loss: {train_loss:.4f} | Val AUC: {val_auc:.4f}")
+        
+        # Save on improvement (immediately)
+        if val_auc > best_auc:
+            best_auc = val_auc
+            torch.save(model.get_encoder().state_dict(), f"models/{model_name}_encoder.pt")
+            torch.save(model.state_dict(), f"models/{model_name}_full.pt")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+        
+        # Checkpoint every 10 epochs
+        if (epoch + 1) % 10 == 0:
+            torch.save({
+                'epoch': epoch, 'model_state': model.state_dict(),
+                'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict(),
+                'best_auc': best_auc
+            }, f"models/checkpoint_epoch{epoch+1}.pt")
+        
+        # Early stopping
+        if patience_counter >= config.get('patience', 10):
+            print(f"Early Stopping на эпохе {epoch+1}")
+            break
+    
+    # Cleanup old checkpoints
+    checkpoints = sorted(Path('models/').glob('checkpoint_epoch*.pt'))
+    for ckpt in checkpoints[:-2]:
+        ckpt.unlink()
+    
+    writer.close()
+    
+    print("=" * 60)
+    print(f"✅ ОБУЧЕНИЕ ЗАВЕРШЕНО! AUC: {best_auc:.4f}")
+    print("=" * 60)
+    return best_auc
