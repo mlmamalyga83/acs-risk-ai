@@ -3,9 +3,11 @@
 # ============================================================
 
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 import pandas as pd
 import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
 
 
 def find_file(root: str, name: str) -> Optional[Path]:
@@ -282,3 +284,169 @@ def run_eda_stage(config_path: str = "config/config.yaml"):
     print(f"       reports/figures/eda_*.png")
     
     return df, root
+
+
+class ECGDataset(Dataset):
+    """
+    Читает предобработанные ECG-циклы из .npy файлов.
+    
+    train: потоковая загрузка из X_train_manifest.txt (6 батчей)
+    val/test: прямой чтение X_{split}.npy
+    
+    Возвращает: (signal [12, 350], label, patient_id)
+    """
+
+    def __init__(self, split: str = 'train', processed_path: Union[str, Path] = 'data/processed/'):
+        super().__init__()
+        self.split = split
+        self.processed_path = Path(processed_path)
+        self._current_batch = None
+        self._current_batch_idx = -1
+
+        if split == 'train':
+            manifest_file = self.processed_path / 'X_train_manifest.txt'
+            with open(manifest_file) as f:
+                self.batch_files = [
+                    self.processed_path / Path(line.strip()).name
+                    for line in f if line.strip()
+                ]
+            self.batch_sizes = []
+            self.total = 0
+            for bf in self.batch_files:
+                arr = np.load(bf, mmap_mode='r')
+                sz = arr.shape[0]
+                self.batch_sizes.append(sz)
+                self.total += sz
+                del arr
+        else:
+            self.x_file = self.processed_path / f'X_{split}.npy'
+            self.total = np.load(self.x_file, mmap_mode='r').shape[0]
+            self.batch_files = []
+            self.batch_sizes = [self.total]
+
+        self.y = np.load(self.processed_path / f'y_{split}.npy')
+        self._pids = np.load(self.processed_path / f'patient_ids_{split}.npy')
+
+    def __len__(self) -> int:
+        return self.total
+
+    def __getitem__(self, idx: int):
+        if self.split == 'train':
+            cumsum = 0
+            for i, sz in enumerate(self.batch_sizes):
+                if idx < cumsum + sz:
+                    local_idx = idx - cumsum
+                    if self._current_batch_idx != i:
+                        self._current_batch = np.load(self.batch_files[i])
+                        self._current_batch_idx = i
+                    break
+                cumsum += sz
+            x = self._current_batch[local_idx]
+        else:
+            if self._current_batch is None:
+                self._current_batch = np.load(self.x_file)
+            x = self._current_batch[idx]
+
+        return x, self.y[idx].item(), self._pids[idx].item()
+
+    @property
+    def labels(self) -> np.ndarray:
+        """Полный массив меток (нужен для pos_weight в trainer.py)."""
+        return self.y
+
+
+class ECGClinicalDataset(Dataset):
+    """
+    Читает ECG-циклы + клинические данные (возраст, пол).
+    Для мультимодальной модели (4 heads: ACS, LVH, Block, Rhythm).
+
+    Возвращает: (ecg [12, 350], clinical [2], y_acs, patient_id)
+    """
+
+    def __init__(self, split: str = 'train', processed_path: Union[str, Path] = 'data/processed/'):
+        super().__init__()
+        self.split = split
+        self.processed_path = Path(processed_path)
+        self._current_batch = None
+        self._current_batch_idx = -1
+
+        if split == 'train':
+            manifest_file = self.processed_path / 'X_train_manifest.txt'
+            with open(manifest_file) as f:
+                self.batch_files = [
+                    self.processed_path / Path(line.strip()).name
+                    for line in f if line.strip()
+                ]
+            self.batch_sizes = []
+            self.total = 0
+            for bf in self.batch_files:
+                arr = np.load(bf, mmap_mode='r')
+                self.batch_sizes.append(arr.shape[0])
+                self.total += arr.shape[0]
+                del arr
+        else:
+            self.x_file = self.processed_path / f'X_{split}.npy'
+            self.total = np.load(self.x_file, mmap_mode='r').shape[0]
+            self.batch_files = []
+            self.batch_sizes = [self.total]
+
+        self.y = np.load(self.processed_path / f'y_{split}.npy')
+        self._pids = np.load(self.processed_path / f'patient_ids_{split}.npy')
+        self._clinical = np.load(self.processed_path / f'clinical_{split}.npy')
+
+    def __len__(self) -> int:
+        return self.total
+
+    def __getitem__(self, idx: int):
+        if self.split == 'train':
+            cumsum = 0
+            for i, sz in enumerate(self.batch_sizes):
+                if idx < cumsum + sz:
+                    local_idx = idx - cumsum
+                    if self._current_batch_idx != i:
+                        self._current_batch = np.load(self.batch_files[i])
+                        self._current_batch_idx = i
+                    break
+                cumsum += sz
+            x = self._current_batch[local_idx]
+        else:
+            if self._current_batch is None:
+                self._current_batch = np.load(self.x_file)
+            x = self._current_batch[idx]
+
+        clin = self._clinical[idx]
+        return x, clin, self.y[idx].item(), self._pids[idx].item()
+
+    @property
+    def labels(self) -> np.ndarray:
+        """Массив меток ACS (нужен для pos_weight)."""
+        return self.y
+
+
+def create_dataloaders(
+    split: str = 'train',
+    batch_size: int = 64,
+    processed_path: str = 'data/processed/',
+    num_workers: int = 0
+) -> DataLoader:
+    """
+    Создаёт DataLoader для ECG-циклов.
+    
+    Args:
+        split: 'train', 'val' или 'test'
+        batch_size: размер батча
+        processed_path: путь к предобработанным данным
+        num_workers: число воркеров для загрузки
+    
+    Returns:
+        DataLoader, возвращающий батчи (X, y, patient_id)
+    """
+    dataset = ECGDataset(split=split, processed_path=processed_path)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=(split == 'train'),
+        num_workers=num_workers,
+        drop_last=(split == 'train'),
+        pin_memory=torch.cuda.is_available()
+    )

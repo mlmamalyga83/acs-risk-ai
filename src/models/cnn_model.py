@@ -106,3 +106,14 @@ class ResNet1D(nn.Module):
         """Возвращает все слои КРОМЕ последнего Linear."""
         modules = [self.stem, self.resblock1, self.resblock2, self.resblock3, self.global_pool]
         return nn.Sequential(*modules)
+
+
+def build_model_from_params(params: dict) -> nn.Module:
+    """Строит ResNet1D или Simple1DCNN по словарю параметров."""
+    arch = params.get('architecture', 'resnet1d')
+    dropout = params.get('dropout', 0.3)
+    if arch == 'resnet1d':
+        return ResNet1D(dropout=dropout)
+    elif arch == 'simple':
+        return Simple1DCNN(dropout=dropout)
+    raise ValueError(f"Unknown architecture: {arch}")

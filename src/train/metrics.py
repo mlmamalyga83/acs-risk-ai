@@ -57,6 +57,17 @@ def compute_clinical_report(y_true, y_proba):
     }
 
 
+def predict(model, X, device='cpu') -> np.ndarray:
+    """Инференс: model.eval() → torch.sigmoid → numpy."""
+    import torch
+    model.eval()
+    model = model.to(device)
+    X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
+    with torch.no_grad():
+        logits = model(X_tensor)
+    return torch.sigmoid(logits).cpu().numpy()
+
+
 def delong_roc_test(y_true, y_pred_1, y_pred_2):
     """Тест DeLong для сравнения двух AUC. Возвращает p-value (упрощённая версия)."""
     auc1 = roc_auc_score(y_true, y_pred_1)
