@@ -131,16 +131,18 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
         print(f"Эпоха {epoch+1:2d}/{config.get('epochs', 50)} | "
               f"Train Loss: {train_loss:.4f} | Val AUC: {val_auc:.4f}")
         
-        # Save on improvement (immediately)
+        # Save encoder unconditionally after each epoch (for Colab free tier)
+        torch.save(model.get_encoder().state_dict(), f"models/{model_name}_encoder.pt")
+        
+        # Save on improvement (full model)
         if val_auc > best_auc:
             best_auc = val_auc
-            torch.save(model.get_encoder().state_dict(), f"models/{model_name}_encoder.pt")
             torch.save(model.state_dict(), f"models/{model_name}_full.pt")
             patience_counter = 0
         else:
             patience_counter += 1
         
-        # Checkpoint every 10 epochs (with model_name for resume)
+        # Checkpoint for resume
         if (epoch + 1) % 5 == 0:
             torch.save({
                 'epoch': epoch, 'model_state': model.state_dict(),
@@ -347,6 +349,9 @@ def train_multimodal_full(model, train_loader, val_loader, config, model_name='m
 
         print(f"Эпоха {epoch+1:2d}/{config.get('epochs', 50)} | "
               f"Train Loss: {train_loss:.4f} | Val AUC: {val_auc:.4f}")
+
+        # Save encoder unconditionally after each epoch (for Colab preempt)
+        torch.save(model.ecg_branch.state_dict(), f"models/{model_name}_encoder.pt")
 
         if val_auc > best_auc:
             best_auc = val_auc
