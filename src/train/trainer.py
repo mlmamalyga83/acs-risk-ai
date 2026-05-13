@@ -15,8 +15,10 @@ def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
     """Обучает одну эпоху. Возвращает средний loss."""
     model.train()
     total_loss = 0.0
+    n_batches = len(loader)
+    report_every = max(1, n_batches // 4)
     
-    for batch_x, batch_y, _ in loader:
+    for batch_idx, (batch_x, batch_y, _) in enumerate(loader):
         batch_x, batch_y = batch_x.to(device), batch_y.to(device).float()
         optimizer.zero_grad()
         
@@ -36,6 +38,10 @@ def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
             optimizer.step()
         
         total_loss += loss.item()
+        
+        if (batch_idx + 1) % report_every == 0:
+            pct = (batch_idx + 1) / n_batches * 100
+            print(f"  [{pct:.0f}%] {batch_idx+1}/{n_batches}, loss={loss.item():.4f}")
     
     return total_loss / len(loader)
 
@@ -135,7 +141,7 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
             patience_counter += 1
         
         # Checkpoint every 10 epochs (with model_name for resume)
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 5 == 0:
             torch.save({
                 'epoch': epoch, 'model_state': model.state_dict(),
                 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict(),
@@ -243,8 +249,10 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
     """Обучает мультимодальную модель одну эпоху. Возвращает средний loss."""
     model.train()
     total_loss = 0.0
+    n_batches = len(loader)
+    report_every = max(1, n_batches // 4)
 
-    for batch_ecg, batch_clin, batch_y, _ in loader:
+    for batch_idx, (batch_ecg, batch_clin, batch_y, _) in enumerate(loader):
         batch_ecg, batch_clin = batch_ecg.to(device), batch_clin.to(device)
         batch_y = batch_y.to(device).float()
         optimizer.zero_grad()
@@ -265,6 +273,10 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
             optimizer.step()
 
         total_loss += loss.item()
+
+        if (batch_idx + 1) % report_every == 0:
+            pct = (batch_idx + 1) / n_batches * 100
+            print(f"  [{pct:.0f}%] {batch_idx+1}/{n_batches}, loss={loss.item():.4f}")
 
     return total_loss / len(loader)
 
@@ -343,7 +355,7 @@ def train_multimodal_full(model, train_loader, val_loader, config, model_name='m
         else:
             patience_counter += 1
 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 5 == 0:
             torch.save({
                 'epoch': epoch, 'model_state': model.state_dict(),
                 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict(),
