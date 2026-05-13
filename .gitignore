@@ -39,5 +39,11 @@ logs/*.log
 *.zip
 *.tar.gz
 
+# Demo data (binary)
+src/app/demo_data/
+
+# Reports figures
+reports/figures/
+
 # Mac
 .DS_Store

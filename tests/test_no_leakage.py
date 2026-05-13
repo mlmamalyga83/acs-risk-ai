@@ -1,4 +1,4 @@
-# ACS ECG Detector — leakage tests
+# ACS ECG Detector  leakage tests
 def test_no_patient_leakage():
     """Проверка: train и test пациентов не пересекаются."""
     train_patients = {'P001', 'P002', 'P003'}

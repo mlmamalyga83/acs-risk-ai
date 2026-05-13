@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — loading ECG from clinical devices
+# ACS ECG Detector  loading ECG from clinical devices
 # ============================================================
 # Supports: CSV, Philips XML, DICOM, WFDB formats.
 
@@ -37,10 +37,10 @@ def load_ecg_wfdb(hea_path: str) -> Tuple[np.ndarray, float, Dict]:
 def auto_load_ecg(filepath: str) -> Tuple[np.ndarray, float, Dict]:
     """
     Автоопределение формата по расширению.
-    .csv/.txt → load_ecg_csv()
-    .xml      → load_ecg_philips_xml()
-    .dcm      → load_ecg_dicom()
-    .hea      → load_ecg_wfdb()
+    .csv/.txt  load_ecg_csv()
+    .xml       load_ecg_philips_xml()
+    .dcm       load_ecg_dicom()
+    .hea       load_ecg_wfdb()
     """
     ext = Path(filepath).suffix.lower()
     if ext in ('.csv', '.txt'):
@@ -56,7 +56,7 @@ def auto_load_ecg(filepath: str) -> Tuple[np.ndarray, float, Dict]:
 
 
 def validate_uploaded_ecg(signal: np.ndarray, fs: float) -> Tuple[bool, str]:
-    """Проверка: 12 каналов, ≥2500 сэмплов, нет NaN, не плоская линия."""
+    """Проверка: 12 каналов, 2500 сэмплов, нет NaN, не плоская линия."""
     errors = []
     if signal.shape[1] != 12:
         errors.append(f"Ожидается 12 отведений, получено {signal.shape[1]}")
@@ -65,7 +65,7 @@ def validate_uploaded_ecg(signal: np.ndarray, fs: float) -> Tuple[bool, str]:
     if np.isnan(signal).any():
         errors.append("Сигнал содержит NaN")
     if np.std(signal) < 1e-6:
-        errors.append("Сигнал — плоская линия")
+        errors.append("Сигнал  плоская линия")
     if errors:
         return False, "\n".join(errors)
     return True, "OK"

@@ -1,0 +1,18 @@
+{
+  "age": {
+    "mu": 60.0,
+    "sigma": 20.0
+  },
+  "troponin": {
+    "mu_log": 1.5,
+    "sigma_log": 1.5
+  },
+  "bp_systolic": {
+    "mu": 135.0,
+    "sigma": 25.0
+  },
+  "bp_diastolic": {
+    "mu": 82.0,
+    "sigma": 15.0
+  }
+}

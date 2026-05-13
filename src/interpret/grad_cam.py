@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — Grad-CAM for 1D CNN
+# ACS ECG Detector  Grad-CAM for 1D CNN
 # ============================================================
 
 import torch
@@ -43,14 +43,14 @@ def grad_cam_1d(model: nn.Module, ecg_input: torch.Tensor) -> np.ndarray:
     output.backward()
     
     weights = torch.mean(gradients, dim=(2))  # [1, C]
-    cam = torch.zeros(activations.shape[2:])   # [1, C, L] → [L]
+    cam = torch.zeros(activations.shape[2:])   # [1, C, L]  [L]
     
     for k in range(weights.shape[1]):
         cam += weights[0, k] * activations[0, k, :]
     
     cam = torch.relu(cam).cpu().numpy()
     
-    # Upsample to 12 leads × 350 samples
+    # Upsample to 12 leads  350 samples
     cam = np.tile(cam, (12, 1))
     cam = cam / (cam.max() + 1e-8)
     

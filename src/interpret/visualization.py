@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — visualization utilities
+# ACS ECG Detector  visualization utilities
 # ============================================================
 
 import matplotlib.pyplot as plt
@@ -10,7 +10,7 @@ STANDARD_LEADS = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
 
 
 def plot_12lead_ecg(signal, fs=500, title="12-канальная ЭКГ", save_path=None):
-    """Визуализация 12-канальной ЭКГ в клиническом формате (4×3)."""
+    """Визуализация 12-канальной ЭКГ в клиническом формате (43)."""
     fig, axes = plt.subplots(4, 3, figsize=(15, 10))
     time = np.arange(signal.shape[0]) / fs
     
@@ -53,7 +53,7 @@ def plot_ecg_with_gradcam(ecg_signal, gradcam_map, title="Grad-CAM", save_path=N
 
 
 def segment_importance_table(gradcam_map, r_peak_idx=125):
-    """Агрегирует Grad-CAM в таблицу P/QRS/ST/T × 12 отведений."""
+    """Агрегирует Grad-CAM в таблицу P/QRS/ST/T  12 отведений."""
     segments = {
         'P': (r_peak_idx - 200, r_peak_idx - 80),
         'QRS': (r_peak_idx - 50, r_peak_idx + 50),

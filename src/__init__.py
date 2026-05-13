@@ -1,1 +1,1 @@
-# ACS ECG Detector — пакет src/
+# ACS ECG Detector  пакет src/

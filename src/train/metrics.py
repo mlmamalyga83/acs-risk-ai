@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — metrics, calibration, statistical tests
+# ACS ECG Detector  metrics, calibration, statistical tests
 # ============================================================
 
 import numpy as np
@@ -31,7 +31,7 @@ def compute_clinical_report(y_true, y_proba):
     auc_pr = average_precision_score(y_true, y_proba)
     brier = np.mean((y_proba - y_true) ** 2)
     
-    # Find threshold for spec ≥ 90%
+    # Find threshold for spec  90%
     thresholds = np.linspace(0.1, 0.9, 100)
     best_sens, best_npv, best_thresh = 0, 0, 0.5
     

@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — ECG signal filtering
+# ACS ECG Detector  ECG signal filtering
 # ============================================================
 
 import numpy as np
@@ -30,7 +30,7 @@ def preprocess_ecg_signal(
     highcut: float = 40.0,
     notch_freq: float = 50.0
 ) -> np.ndarray:
-    """Полосовой 0.5–40 Гц + режекторный 50 Гц. filtfilt (нулевая фаза)."""
+    """Полосовой 0.540 Гц + режекторный 50 Гц. filtfilt (нулевая фаза)."""
     b_band, a_band = butter_bandpass(lowcut, highcut, fs)
     b_notch, a_notch = notch_filter(notch_freq, fs)
     

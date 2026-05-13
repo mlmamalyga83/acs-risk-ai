@@ -1,8 +1,8 @@
 # ============================================================
-# ACS ECG Detector — централизованный random seed
+# ACS ECG Detector  централизованный random seed
 # ============================================================
 # Импортировать в КАЖДОМ модуле проекта.
-# Обеспечивает воспроизводимость: два запуска → идентичные метрики.
+# Обеспечивает воспроизводимость: два запуска  идентичные метрики.
 
 RANDOM_SEED = 42
 SIMULATION_SEED = 123
@@ -18,4 +18,4 @@ torch.manual_seed(RANDOM_SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-print(f"🔒 Random seed: {RANDOM_SEED} (numpy, random, torch)")
+print(f" Random seed: {RANDOM_SEED} (numpy, random, torch)")

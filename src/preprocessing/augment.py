@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — data augmentation
+# ACS ECG Detector  data augmentation
 # ============================================================
 
 import numpy as np
@@ -21,7 +21,7 @@ def augment_ecg_cycle(cycle: np.ndarray, seed: int = None) -> np.ndarray:
     scale = rng.uniform(0.9, 1.1)
     cycle = cycle * scale
     
-    # Time warp [0.85, 1.15] — изменение скорости
+    # Time warp [0.85, 1.15]  изменение скорости
     if rng.random() > 0.5:
         from scipy.interpolate import interp1d
         factor = rng.uniform(0.85, 1.15)

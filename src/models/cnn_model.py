@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — CNN architectures (Simple1DCNN, ResNet1D)
+# ACS ECG Detector  CNN architectures (Simple1DCNN, ResNet1D)
 # ============================================================
 
 import torch
@@ -7,7 +7,7 @@ import torch.nn as nn
 
 
 class Simple1DCNN(nn.Module):
-    """Baseline CNN: 3×Conv1d → MaxPool → Flatten → FC."""
+    """Baseline CNN: 3Conv1d  MaxPool  Flatten  FC."""
     
     def __init__(self, input_channels=12, dropout=0.3):
         super().__init__()

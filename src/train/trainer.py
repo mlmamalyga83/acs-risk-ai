@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — training loop
+# ACS ECG Detector  training loop
 # ============================================================
 
 import torch
@@ -40,7 +40,7 @@ def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
 
 
 def validate(model, loader, device):
-    """Валидация с агрегацией цикл→пациент. Возвращает AUC."""
+    """Валидация с агрегацией циклпациент. Возвращает AUC."""
     model.eval()
     all_probas, all_labels, all_pids = [], [], []
     
@@ -56,7 +56,7 @@ def validate(model, loader, device):
 
 
 def aggregate_cycle_predictions(probas, pids, labels, method='mean'):
-    """Агрегирует цикловые предсказания → пациентские."""
+    """Агрегирует цикловые предсказания  пациентские."""
     unique_pids = np.unique(pids)
     patient_probas, patient_labels = [], []
     
@@ -132,6 +132,6 @@ def train_full(model, train_loader, val_loader, config, model_name='model'):
     writer.close()
     
     print("=" * 60)
-    print(f"✅ ОБУЧЕНИЕ ЗАВЕРШЕНО! AUC: {best_auc:.4f}")
+    print(f" ОБУЧЕНИЕ ЗАВЕРШЕНО! AUC: {best_auc:.4f}")
     print("=" * 60)
     return best_auc

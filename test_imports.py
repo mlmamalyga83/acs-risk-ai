@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — проверка импорта всех библиотек
+# ACS ECG Detector  проверка импорта всех библиотек
 # ============================================================
 
 import sys
@@ -27,27 +27,22 @@ def check_imports():
     for import_name, display_name in required.items():
         try:
             __import__(import_name)
-            print(f"  ✅ {display_name}")
+            print(f"  OK {display_name}")
         except ImportError:
-            print(f"  ❌ {display_name} — НЕ УСТАНОВЛЕН")
+            print(f"  FAIL {display_name}  НЕ УСТАНОВЛЕН")
             errors.append(display_name)
     
     if errors:
-        print(f"\n❌ Не установлены: {', '.join(errors)}")
+        print(f"\nFAIL Не установлены: {', '.join(errors)}")
         print("  Выполните: pip install -r requirements.txt")
         return False
     
-    print(f"\n✅ Все {len(required)} библиотек загружены")
+    print(f"\nOK Все {len(required)} библиотек загружены")
     return True
 
 
 if __name__ == "__main__":
     print(f"Python {sys.version}")
-    print(f"Проверка библиотек ({len({k:v for k,v in {
-        'numpy':'','pandas':'','matplotlib':'','seaborn':'',
-        'scipy':'','wfdb':'','neurokit2':'','sklearn':'',
-        'torch':'','shap':'','streamlit':'','omegaconf':'',
-        'yaml':'','optuna':''
-    }.items()})} шт.):")
+    print("Proverka bibliotek:")
     success = check_imports()
     sys.exit(0 if success else 1)

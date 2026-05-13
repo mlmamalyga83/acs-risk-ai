@@ -1,40 +1,40 @@
 # ============================================================
-# ACS ECG Detector — зависимости проекта
+# ACS ECG Detector - project dependencies
 # ============================================================
 
-# --- Обработка данных ---
-numpy>=1.24             # массивы, вычисления
-pandas>=1.5             # таблицы, CSV
-scipy>=1.11,<1.14       # сигнальная обработка, фильтры (совместимость с neurokit2)
+# Data processing
+numpy>=1.24
+pandas>=1.5
+scipy>=1.11,<1.14
 
-# --- Визуализация ---
-matplotlib>=3.7         # графики
-seaborn>=0.12           # красивые статистические графики
+# Visualization
+matplotlib>=3.7
+seaborn>=0.12
 
-# --- ЭКГ ---
-wfdb>=4.0               # чтение PhysioNet форматов (.hea/.dat)
-neurokit2>=0.2          # R-пики, сегментация, delineation
+# ECG
+wfdb>=4.0
+neurokit2>=0.2
 
-# --- Машинное обучение ---
-scikit-learn>=1.3       # baseline-модели, метрики, калибровка
-torch>=2.1              # нейросети (CNN, ResNet1D)
-torchvision>=0.16       # утилиты torch
-optuna>=3.0             # автоматический подбор гиперпараметров
+# Machine Learning
+scikit-learn>=1.3
+torch>=2.1
+torchvision>=0.16
+optuna>=3.0
 
-# --- Интерпретация ---
-shap>=0.42              # объяснение предсказаний
+# Interpretation
+shap>=0.42
 
-# --- Интерфейс ---
-streamlit>=1.25         # веб-приложение для врача
+# Interface
+streamlit>=1.25
 
-# --- Медицинские форматы ---
-pydicom>=2.4            # чтение DICOM Waveform (GE, Philips)
-lxml>=4.9               # чтение Philips XML
+# Medical formats
+pydicom>=2.4
+lxml>=4.9
 
-# --- Разработка ---
-omegaconf>=2.3          # YAML-конфигурация
-pyyaml>=6.0             # YAML-базовый парсер
-tensorboard>=2.13       # мониторинг обучения
-jupyter>=1.0            # ноутбуки
-ipywidgets>=8.0         # интерактивные виджеты
-psutil>=5.9             # мониторинг RAM/диска
+# Development
+omegaconf>=2.3
+pyyaml>=6.0
+tensorboard>=2.13
+jupyter>=1.0
+ipywidgets>=8.0
+psutil>=5.9

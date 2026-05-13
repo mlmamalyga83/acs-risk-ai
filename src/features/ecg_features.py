@@ -1,11 +1,11 @@
 # ============================================================
-# ACS ECG Detector — feature extraction from ECG cycles
+# ACS ECG Detector  feature extraction from ECG cycles
 # ============================================================
 
 import numpy as np
 import pandas as pd
 
-# R-peak position in 350-sample window: 0.25s × 500 Hz = 125
+# R-peak position in 350-sample window: 0.25s  500 Hz = 125
 R_IDX = 125
 
 # Clinical references relative to R-peak (in samples at 500 Hz)
@@ -26,7 +26,7 @@ def extract_ecg_features(cycles: np.ndarray, fs: float = 500.0) -> pd.DataFrame:
     n_cycles = cycles.shape[0]
     features = {}
     
-    # Per-lead features (7 features × 12 leads = 84)
+    # Per-lead features (7 features  12 leads = 84)
     for lead_idx, lead_name in enumerate(['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
                                             'V1', 'V2', 'V3', 'V4', 'V5', 'V6']):
         lead_signal = cycles[:, lead_idx, :]
@@ -43,7 +43,7 @@ def extract_ecg_features(cycles: np.ndarray, fs: float = 500.0) -> pd.DataFrame:
         features[f'{lead_name}_st_slope'] = np.diff(lead_signal[:, ST_START:ST_END], axis=1).mean(axis=1)
     
     # Global features (5)
-    features['hr'] = np.ones(n_cycles) * 75  # placeholder — requires RR intervals
+    features['hr'] = np.ones(n_cycles) * 75  # placeholder  requires RR intervals
     features['qrs_width'] = np.ones(n_cycles) * 100
     features['qtc_fridericia'] = np.ones(n_cycles) * 420
     features['qt_dispersion'] = np.ones(n_cycles) * 30

@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — patient-level train/val/test split
+# ACS ECG Detector  patient-level train/val/test split
 # ============================================================
 
 from sklearn.model_selection import GroupShuffleSplit
@@ -26,6 +26,6 @@ def patient_level_split(patient_ids: np.ndarray, y: np.ndarray,
         "Утечка данных! Пациенты из train попали в val."
     
     print(f"Train: {len(train_idx)} | Val: {len(val_idx)} | Test: {len(test_idx)}")
-    print(f"✅ Patient-level split: утечек нет")
+    print(f" Patient-level split: утечек нет")
     
     return train_idx, val_idx, test_idx

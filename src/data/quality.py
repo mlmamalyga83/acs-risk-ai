@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — signal quality assessment
+# ACS ECG Detector  signal quality assessment
 # ============================================================
 
 import numpy as np

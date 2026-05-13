@@ -1,1 +1,1 @@
-# ACS ECG Detector — Streamlit utility functions
+# ACS ECG Detector  Streamlit utility functions

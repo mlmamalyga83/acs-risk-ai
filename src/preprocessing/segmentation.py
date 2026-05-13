@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — R-peak detection and cycle segmentation
+# ACS ECG Detector  R-peak detection and cycle segmentation
 # ============================================================
 
 import numpy as np
@@ -28,7 +28,7 @@ def extract_heartbeats(
 ) -> Dict[str, Any]:
     """
     Детектирует R-пики, извлекает отдельные сердечные циклы.
-    При отказе отведения II — fallback на V5 (idx=10), aVF (idx=5).
+    При отказе отведения II  fallback на V5 (idx=10), aVF (idx=5).
     """
     import neurokit2 as nk
     
@@ -50,7 +50,7 @@ def extract_heartbeats(
         except Exception:
             pass
     
-    # Если всё ещё нет — wfdb fallback
+    # Если всё ещё нет  wfdb fallback
     if len(r_peaks) < 3:
         try:
             import wfdb.processing

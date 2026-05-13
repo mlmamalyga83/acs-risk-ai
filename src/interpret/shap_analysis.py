@@ -1,5 +1,5 @@
 # ============================================================
-# ACS ECG Detector — SHAP analysis
+# ACS ECG Detector  SHAP analysis
 # ============================================================
 
 import numpy as np
