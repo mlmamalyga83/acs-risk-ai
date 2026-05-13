@@ -69,30 +69,52 @@ def aggregate_cycle_predictions(probas, pids, labels, method='mean'):
     return roc_auc_score(np.array(patient_labels), np.array(patient_probas))
 
 
-def train_full(model, train_loader, val_loader, config, model_name='model'):
-    """Полный цикл обучения с Early Stopping и чекпоинтами."""
+def train_full(model, train_loader, val_loader, config, model_name='model', resume=False):
+    """Полный цикл обучения с Early Stopping и чекпоинтами.
+    
+    resume=True: автоматически найти последний чекпоинт и продолжить.
+    """
     device = torch.device(config.get('device', 'cpu'))
     model = model.to(device)
+    
+    start_epoch = 0
+    best_auc = 0.0
+    patience_counter = 0
+    
+    # Resume from checkpoint
+    if resume:
+        ckpt_files = sorted(Path('models/').glob(f'checkpoint_{model_name}_epoch*.pt'))
+        if ckpt_files:
+            latest = ckpt_files[-1]
+            ckpt = torch.load(latest, map_location=device)
+            model.load_state_dict(ckpt['model_state'])
+            start_epoch = ckpt['epoch'] + 1
+            best_auc = ckpt.get('best_auc', 0.0)
+            patience_counter = ckpt.get('patience', 0)
+            print(f"Resumed from {latest.name} (epoch {ckpt['epoch']+1})")
     
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
     optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 0.001),
                                    weight_decay=config.get('weight_decay', 1e-4))
     
+    total_epochs = config.get('epochs', 50)
     steps_per_epoch = len(train_loader)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=config.get('learning_rate', 0.001),
-        epochs=config.get('epochs', 50), steps_per_epoch=steps_per_epoch,
+        epochs=total_epochs, steps_per_epoch=steps_per_epoch,
         pct_start=0.3, div_factor=10, final_div_factor=100
     )
+    
+    # Fast forward scheduler to start_epoch
+    if start_epoch > 0:
+        for _ in range(start_epoch * steps_per_epoch):
+            scheduler.step()
     
     scaler = torch.amp.GradScaler() if config.get('use_amp', False) and device.type == 'cuda' else None
     writer = SummaryWriter(log_dir=f"runs/{model_name}")
     
-    best_auc = 0.0
-    patience_counter = 0
-    
-    for epoch in range(config.get('epochs', 50)):
+    for epoch in range(start_epoch, total_epochs):
         train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scaler)
         scheduler.step()
         
@@ -112,21 +134,21 @@ def train_full(model, train_loader, val_loader, config, model_name='model'):
         else:
             patience_counter += 1
         
-        # Checkpoint every 10 epochs
+        # Checkpoint every 10 epochs (with model_name for resume)
         if (epoch + 1) % 10 == 0:
             torch.save({
                 'epoch': epoch, 'model_state': model.state_dict(),
                 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict(),
-                'best_auc': best_auc
-            }, f"models/checkpoint_epoch{epoch+1}.pt")
+                'best_auc': best_auc, 'patience': patience_counter
+            }, f"models/checkpoint_{model_name}_epoch{epoch+1}.pt")
         
         # Early stopping
         if patience_counter >= config.get('patience', 10):
             print(f"Early Stopping на эпохе {epoch+1}")
             break
     
-    # Cleanup old checkpoints
-    checkpoints = sorted(Path('models/').glob('checkpoint_epoch*.pt'))
+    # Cleanup old checkpoints (keep last 2)
+    checkpoints = sorted(Path('models/').glob(f'checkpoint_{model_name}_epoch*.pt'))
     for ckpt in checkpoints[:-2]:
         ckpt.unlink()
     
@@ -264,30 +286,47 @@ def validate_multimodal(model, loader, device):
     return aggregate_cycle_predictions(np.array(all_probas), np.array(all_pids), np.array(all_labels))
 
 
-def train_multimodal_full(model, train_loader, val_loader, config, model_name='multimodal'):
+def train_multimodal_full(model, train_loader, val_loader, config, model_name='multimodal', resume=False):
     """Полный цикл обучения мультимодальной модели с Early Stopping."""
     device = torch.device(config.get('device', 'cpu'))
     model = model.to(device)
+
+    start_epoch = 0
+    best_auc = 0.0
+    patience_counter = 0
+
+    if resume:
+        ckpt_files = sorted(Path('models/').glob(f'checkpoint_{model_name}_epoch*.pt'))
+        if ckpt_files:
+            latest = ckpt_files[-1]
+            ckpt = torch.load(latest, map_location=device)
+            model.load_state_dict(ckpt['model_state'])
+            start_epoch = ckpt['epoch'] + 1
+            best_auc = ckpt.get('best_auc', 0.0)
+            patience_counter = ckpt.get('patience', 0)
+            print(f"Resumed from {latest.name} (epoch {ckpt['epoch']+1})")
 
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
     optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 0.001),
                                   weight_decay=config.get('weight_decay', 1e-4))
 
+    total_epochs = config.get('epochs', 50)
     steps_per_epoch = len(train_loader)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=config.get('learning_rate', 0.001),
-        epochs=config.get('epochs', 50), steps_per_epoch=steps_per_epoch,
+        epochs=total_epochs, steps_per_epoch=steps_per_epoch,
         pct_start=0.3, div_factor=10, final_div_factor=100
     )
+
+    if start_epoch > 0:
+        for _ in range(start_epoch * steps_per_epoch):
+            scheduler.step()
 
     scaler = torch.amp.GradScaler() if config.get('use_amp', False) and device.type == 'cuda' else None
     writer = SummaryWriter(log_dir=f"runs/{model_name}")
 
-    best_auc = 0.0
-    patience_counter = 0
-
-    for epoch in range(config.get('epochs', 50)):
+    for epoch in range(start_epoch, total_epochs):
         train_loss = train_multimodal_epoch(model, train_loader, criterion, optimizer, device, scaler)
         scheduler.step()
         val_auc = validate_multimodal(model, val_loader, device)
@@ -308,14 +347,14 @@ def train_multimodal_full(model, train_loader, val_loader, config, model_name='m
             torch.save({
                 'epoch': epoch, 'model_state': model.state_dict(),
                 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict(),
-                'best_auc': best_auc
-            }, f"models/checkpoint_epoch{epoch+1}.pt")
+                'best_auc': best_auc, 'patience': patience_counter
+            }, f"models/checkpoint_{model_name}_epoch{epoch+1}.pt")
 
         if patience_counter >= config.get('patience', 10):
             print(f"Early Stopping на эпохе {epoch+1}")
             break
 
-    checkpoints = sorted(Path('models/').glob('checkpoint_epoch*.pt'))
+    checkpoints = sorted(Path('models/').glob(f'checkpoint_{model_name}_epoch*.pt'))
     for ckpt in checkpoints[:-2]:
         ckpt.unlink()
 

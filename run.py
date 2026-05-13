@@ -127,7 +127,7 @@ def check_datasets():
         print(f"  OK MIT-BIH: {len(mit_heas)} records, {len(mit_atrs)} annotations")
 
 
-def run_cnn_stage(config, device_info, tune=False):
+def run_cnn_stage(config, device_info, tune=False, resume=False):
     """Stage 4: CNN training."""
     import torch
     from src.data.loader import create_dataloaders
@@ -166,7 +166,7 @@ def run_cnn_stage(config, device_info, tune=False):
     }
 
     print(f"\nTraining {config.model_cnn.architecture} for {epochs} epochs on {device}...")
-    best_auc = train_full(model, train_loader, val_loader, train_config, model_name=config.model_cnn.architecture)
+    best_auc = train_full(model, train_loader, val_loader, train_config, model_name=config.model_cnn.architecture, resume=resume)
 
     # Save final models
     torch.save(model.state_dict(), f"models/{config.model_cnn.architecture}_full.pt")
@@ -309,7 +309,7 @@ def run_ablation_study(config, device_info):
     return results
 
 
-def run_multimodal_stage(config, device_info, ablation=False):
+def run_multimodal_stage(config, device_info, ablation=False, resume=False):
     """Stage 5: Multimodal training + optional ablation study."""
     import torch
     from src.models.cnn_model import ResNet1D
@@ -355,13 +355,13 @@ def run_multimodal_stage(config, device_info, ablation=False):
     print("\nPhase 1: Training with frozen encoder...")
     model.freeze_encoder()
     auc_frozen = train_multimodal_full(model, train_loader, val_loader, train_config,
-                                        model_name='multimodal_frozen')
+                                        model_name='multimodal_frozen', resume=resume)
 
     print("\nPhase 2: Fine-tuning encoder...")
     model.unfreeze_encoder()
     train_config['learning_rate'] = lr / 10
     auc_ft = train_multimodal_full(model, train_loader, val_loader, train_config,
-                                    model_name='multimodal_ft')
+                                    model_name='multimodal_ft', resume=resume)
 
     print(f"\nOK Multimodal complete. Frozen AUC: {auc_frozen:.4f}, Fine-tuned AUC: {auc_ft:.4f}")
     return max(auc_frozen, auc_ft)
@@ -376,6 +376,7 @@ def main():
     parser.add_argument("--tune", action="store_true", help="Optuna hyperparameter tuning")
     parser.add_argument("--cpu-only", action="store_true", help="Fast CPU training")
     parser.add_argument("--force", action="store_true", help="Rerun all stages")
+    parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
     parser.add_argument("--stop-after", type=str, default=None,
                         help="Stop after stage")
     args = parser.parse_args()
@@ -438,9 +439,9 @@ def main():
             elif s == "cnn":
                 from src.models.cnn_model import ResNet1D
                 from src.train.trainer import train_full, auto_tune_hyperparams
-                run_cnn_stage(config, device_info, tune=args.tune)
+                run_cnn_stage(config, device_info, tune=args.tune, resume=args.resume)
             elif s == "multimodal":
-                run_multimodal_stage(config, device_info, ablation=args.tune)
+                run_multimodal_stage(config, device_info, ablation=args.tune, resume=args.resume)
             elif s == "validate":
                 print("  [Stage 6] Validation - to be implemented")
             elif s == "demo":
