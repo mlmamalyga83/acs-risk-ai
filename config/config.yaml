@@ -29,7 +29,7 @@ split:
   random_state: 42
 
 model_cnn:
-  architecture: "resnet1d"          # simple1d, resnet1d
+  architecture: "simple"            # simple1d, resnet1d
   input_channels: 12
   hidden_channels: [32, 64, 128]
   dropout: 0.3

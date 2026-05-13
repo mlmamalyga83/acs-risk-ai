@@ -131,14 +131,14 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
     """Stage 4: CNN training."""
     import torch
     from src.data.loader import create_dataloaders
-    from src.models.cnn_model import ResNet1D, build_model_from_params
+    from src.models.cnn_model import build_model_from_params
     from src.train.trainer import train_full, auto_tune_hyperparams
 
     processed_path = config.data.processed_path
-    batch_size = device_info.get('batch_size', 64)
+    batch_size = config.training.batch_size
     device = device_info['device']
     use_amp = device_info.get('use_amp', False)
-    epochs = config.training.epochs if not device_info.get('cpu_only', False) else device_info.get('epochs', 10)
+    epochs = config.training.epochs if not device_info.get('epochs') else device_info.get('epochs')
 
     print(f"Loading data (batch_size={batch_size})...")
     train_loader = create_dataloaders(split='train', batch_size=batch_size, processed_path=processed_path)
@@ -155,7 +155,10 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
         model = build_model_from_params({'architecture': 'resnet1d', 'dropout': best_params.get('dropout', 0.3)})
     else:
         print("Using default hyperparameters from config.yaml")
-        model = ResNet1D(dropout=config.model_cnn.dropout)
+        model = build_model_from_params({
+            'architecture': config.model_cnn.architecture,
+            'dropout': config.model_cnn.dropout
+        })
 
     train_config = {
         'device': device, 'use_amp': use_amp,
