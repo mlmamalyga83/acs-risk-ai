@@ -6,44 +6,54 @@ echo " ACS ECG Detector — Server Setup"
 echo "============================================================"
 echo ""
 
-# 1. Проверка OS
-if [ ! -f /etc/os-release ]; then
-    echo "ERROR: Only Linux (Ubuntu/Debian) is supported"
-    exit 1
-fi
-
-# 2. Системные пакеты
-echo "[1/5] Installing system packages..."
+# 1. System packages
+echo "[1/6] Installing system packages..."
 apt update -qq && apt install -y -qq \
     python3.10 python3.10-venv python3.10-dev \
-    git unzip wget screen htop nvtop curl \
+    git unzip wget screen htop curl \
     2>&1 | tail -1
 echo "  OK"
 
-# 3. CUDA check
-echo "[2/5] Checking NVIDIA GPU..."
+# 2. CUDA check
+echo "[2/6] Checking NVIDIA GPU..."
 if command -v nvidia-smi &> /dev/null; then
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 else
-    echo "  WARNING: nvidia-smi not found."
-    echo "  Install NVIDIA drivers: https://developer.nvidia.com/cuda-downloads"
-    echo "  Or use CPU mode: python run.py --stage cnn --cpu-only"
+    echo "  WARNING: NVIDIA driver not found. Install CUDA:"
+    echo "  https://developer.nvidia.com/cuda-downloads"
+    echo "  Or use: python run.py --stage cnn --cpu-only"
 fi
 
-# 4. Python virtual environment
-echo "[3/5] Creating Python virtual environment..."
+# 3. Python virtual environment
+echo "[3/6] Creating Python virtual environment..."
 python3.10 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip setuptools wheel -q
 echo "  OK"
 
-# 5. Python packages
-echo "[4/5] Installing Python packages..."
+# 4. Python packages
+echo "[4/6] Installing Python packages..."
 pip install -r requirements.txt -q
 echo "  OK"
 
+# 5. Download data from Yandex.Disk
+echo "[5/6] Downloading processed data (5.7 GB from Yandex.Disk)..."
+PUBLIC_KEY="https://disk.yandex.ru/d/03GsU4NnX2RpEQ"
+API_URL="https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=$PUBLIC_KEY"
+python3 -c "
+import urllib.request, json
+with urllib.request.urlopen('$API_URL') as r:
+    url = json.loads(r.read())['href']
+with open('/tmp/dl_url.txt', 'w') as f:
+    f.write(url)
+"
+wget -O processed.zip -q --show-progress "$(cat /tmp/dl_url.txt)"
+unzip -o processed.zip
+rm -f /tmp/dl_url.txt
+echo "  OK"
+
 # 6. Verify
-echo "[5/5] Verifying installation..."
+echo "[6/6] Verifying installation..."
 python -c "
 import torch, numpy as np, sys
 print(f'  Python: {sys.version.split()[0]}')
@@ -53,6 +63,12 @@ if torch.cuda.is_available():
     p = torch.cuda.get_device_properties(0)
     print(f'  GPU: {p.name}, Memory: {p.total_memory/1e9:.1f} GB')
 print(f'  NumPy: {np.__version__}')
+import os
+for f in ['X_train_batch0.npy', 'X_val.npy', 'X_test.npy', 'y_train.npy']:
+    p = f'data/processed/{f}'
+    if os.path.exists(p):
+        sz = os.path.getsize(p) / 1e6
+        print(f'  Data: {f} ({sz:.0f} MB)')
 "
 echo "  OK"
 
@@ -61,18 +77,11 @@ echo "============================================================"
 echo " Setup complete!"
 echo "============================================================"
 echo ""
-echo "Next steps:"
-echo "  1. Upload processed.zip to server:"
-echo "     scp processed.zip root@YOUR_SERVER_IP:~/acs-risk-ai/"
+echo "Run training:"
+echo "  screen -S ecg_train"
+echo "  source venv/bin/activate"
+echo "  python run.py --stage all --tune"
 echo ""
-echo "  2. Extract data:"
-echo "     cd ~/acs-risk-ai && unzip -o processed.zip"
-echo ""
-echo "  3. Run training:"
-echo "     source venv/bin/activate"
-echo "     screen -S ecg_train"
-echo "     python run.py --stage all --tune"
-echo ""
-echo "  4. Detach from screen: Ctrl+A then D"
-echo "  5. Reattach: screen -r ecg_train"
+echo "Detach: Ctrl+A  D"
+echo "Reattach: screen -r ecg_train"
 echo ""
