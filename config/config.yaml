@@ -29,11 +29,11 @@ split:
   random_state: 42
 
 model_cnn:
-  architecture: "simple"            # simple1d, resnet1d
+  architecture: "resnet1d"          # simple1d, resnet1d
   input_channels: 12
   hidden_channels: [32, 64, 128]
   dropout: 0.3
-  embedding_dim: 64                 # для мультимодальной модели
+  embedding_dim: 256                # для мультимодальной модели
 
 model_clinical:
   hidden_units: [64, 32]
@@ -45,11 +45,11 @@ multimodal:
 
 training:
   seed: 42
-  batch_size: 32                    # мало для стабильности на free tier Colab
+  batch_size: 128                   # A5000 24GB VRAM
   learning_rate: 0.001
   weight_decay: 0.0001
-  epochs: 5
-  patience: 3                        # early stopping
+  epochs: 50
+  patience: 10                       # early stopping
   use_amp: true                     # mixed precision на GPU
   gradient_clip: 1.0
   num_workers: 2
