@@ -337,14 +337,14 @@ class ECGDataset(Dataset):
                 if idx < cumsum + sz:
                     local_idx = idx - cumsum
                     if self._current_batch_idx != i:
-                        self._current_batch = np.load(self.batch_files[i])
+                        self._current_batch = np.load(self.batch_files[i], mmap_mode='r')
                         self._current_batch_idx = i
                     break
                 cumsum += sz
             x = self._current_batch[local_idx]
         else:
             if self._current_batch is None:
-                self._current_batch = np.load(self.x_file)
+                self._current_batch = np.load(self.x_file, mmap_mode='r')
             x = self._current_batch[idx]
 
         return x, self.y[idx].item(), self._pids[idx].item()
@@ -411,14 +411,14 @@ class ECGClinicalDataset(Dataset):
                 if idx < cumsum + sz:
                     local_idx = idx - cumsum
                     if self._current_batch_idx != i:
-                        self._current_batch = np.load(self.batch_files[i])
+                        self._current_batch = np.load(self.batch_files[i], mmap_mode='r')
                         self._current_batch_idx = i
                     break
                 cumsum += sz
             x = self._current_batch[local_idx]
         else:
             if self._current_batch is None:
-                self._current_batch = np.load(self.x_file)
+                self._current_batch = np.load(self.x_file, mmap_mode='r')
             x = self._current_batch[idx]
 
         clin = self._clinical[idx]
