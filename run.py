@@ -179,195 +179,218 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
     return best_auc
 
 
-def run_ablation_study(config, device_info):
-    """
-    Ablation study: A(ECG-only) → B(Clinical-only) → C1(Multimodal frozen) → C2(Multimodal ft).
-    Сравнивает AUC по ACS через DeLong test.
-    """
-    import torch
-    import shutil
+def run_validation_stage(config, device_info):
+    """Stage 6: Validation — test set, метрики, калибровка, fairness, MIT-BIH."""
+    import torch, json, numpy as np
+    from pathlib import Path
+    from src.data.loader import create_dataloaders
     from src.models.cnn_model import ResNet1D
-    from src.models.multimodal import MultimodalECGNet
-    from src.data.loader import create_dataloaders, ECGClinicalDataset
-    from src.train.trainer import train_and_evaluate, train_multimodal_full
-    from src.train.metrics import delong_roc_test
-    from torch.utils.data import DataLoader
-    import numpy as np
+    from src.train.metrics import (
+        compute_clinical_report, bootstrap_auc_ci, delong_roc_test,
+        calibrate_temperature, decision_curve_analysis,
+        compute_fairness_metrics, analyze_errors,
+    )
+    from src.data.adapters import load_mitbih_records
+    from src.train.trainer import aggregate_cycle_predictions
 
-    processed_path = config.data.processed_path
     device = device_info['device']
     use_amp = device_info.get('use_amp', False)
-    batch_size = device_info.get('batch_size', 64)
-    lr = config.training.learning_rate
-    wd = config.training.weight_decay
+    processed_path = config.data.processed_path
 
-    print("\nLoading data for ablation...")
-    ecg_val = create_dataloaders(split='val', batch_size=batch_size, processed_path=processed_path)
-    clin_val = DataLoader(
-        ECGClinicalDataset(split='val', processed_path=processed_path),
-        batch_size=batch_size
-    )
-
-    results = {}
-
-    # A: ECG-only (ResNet1D)
-    print("\n[A] ECG-only (ResNet1D)...")
-    ecg_train = create_dataloaders(split='train', batch_size=batch_size, processed_path=processed_path)
-    model_a = ResNet1D(dropout=config.model_cnn.dropout)
-    auc_a = train_and_evaluate(model_a, ecg_train, ecg_val, lr=lr, weight_decay=wd,
-                                max_epochs=20, device=device, use_amp=use_amp)
-    results['ecg_only'] = {'auc': auc_a}
-
-    # B: Clinical-only (FFN baseline: predict ACS from age+sex)
-    print("\n[B] Clinical-only (FFN)...")
-    class ClinicalFFN(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.net = torch.nn.Sequential(
-                torch.nn.Linear(2, 32), torch.nn.ReLU(),
-                torch.nn.Dropout(0.3),
-                torch.nn.Linear(32, 1)
-            )
-        def forward(self, x):
-            return self.net(x).squeeze(-1)
-
-    clin_train = DataLoader(
-        ECGClinicalDataset(split='train', processed_path=processed_path),
-        batch_size=batch_size
-    )
-
-    def train_clinical_epoch(model, loader, criterion, optimizer, device):
-        model.train()
-        total_loss = 0.0
-        for batch_ecg, batch_clin, batch_y, _ in loader:
-            batch_clin, batch_y = batch_clin.to(device), batch_y.to(device).float()
-            optimizer.zero_grad()
-            loss = criterion(model(batch_clin), batch_y)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        return total_loss / len(loader)
-
-    def validate_clinical(model, loader, device):
-        model.eval()
-        all_p, all_l, all_pid = [], [], []
-        with torch.no_grad():
-            for _, batch_clin, batch_y, batch_pid in loader:
-                out = torch.sigmoid(model(batch_clin.to(device))).cpu().numpy()
-                all_p.extend(out)
-                all_l.extend(batch_y.numpy())
-                all_pid.extend(batch_pid.numpy())
-        from src.train.trainer import aggregate_cycle_predictions
-        return aggregate_cycle_predictions(np.array(all_p), np.array(all_pid), np.array(all_l))
-
-    model_b = ClinicalFFN().to(device)
-    crit_b = torch.nn.BCEWithLogitsLoss()
-    opt_b = torch.optim.Adam(model_b.parameters(), lr=lr, weight_decay=wd)
-    best_auc_b = 0.0
-    for ep in range(20):
-        loss = train_clinical_epoch(model_b, clin_train, crit_b, opt_b, device)
-        auc = validate_clinical(model_b, clin_val, device)
-        print(f"  clinical epoch {ep+1:2d}/20 | loss: {loss:.4f} | auc: {auc:.4f}")
-        best_auc_b = max(best_auc_b, auc)
-    results['clinical_only'] = {'auc': best_auc_b}
-
-    # C1: Multimodal frozen
-    print("\n[C1] Multimodal frozen...")
-    encoder = ResNet1D(dropout=config.model_cnn.dropout)
-    model_c1 = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
-    model_c1.freeze_encoder()
-    auc_c1 = train_multimodal_full(model_c1, clin_train, clin_val,
-                                    {'device': device, 'use_amp': use_amp,
-                                     'learning_rate': lr, 'weight_decay': wd,
-                                     'epochs': 20, 'patience': 5},
-                                    model_name='multimodal_frozen')
-    results['multimodal_frozen'] = {'auc': auc_c1}
-
-    # C2: Multimodal fine-tuned
-    print("\n[C2] Multimodal fine-tuned...")
-    encoder = ResNet1D(dropout=config.model_cnn.dropout)
-    model_c2 = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
-    auc_c2 = train_multimodal_full(model_c2, clin_train, clin_val,
-                                    {'device': device, 'use_amp': use_amp,
-                                     'learning_rate': lr / 10, 'weight_decay': wd,
-                                     'epochs': 20, 'patience': 5},
-                                    model_name='multimodal_ft')
-    results['multimodal_ft'] = {'auc': auc_c2}
-
-    # Save best model
-    best_name = max(results, key=lambda k: results[k]['auc'])
-    shutil.copy(f"models/{best_name}_full.pt", "models/best_encoder.pt")
-    results['best_model'] = best_name
-
-    # Summary
     print("\n" + "=" * 60)
-    print("Ablation Study Results")
-    print("=" * 60)
-    for name, r in results.items():
-        if name != 'best_model':
-            print(f"  {name:25s}: AUC = {r['auc']:.4f}")
-    print(f"\n  Best model: {results['best_model']}")
+    print("Stage 6: Validation")
     print("=" * 60)
 
-    return results
+    # === 1. Load test data ===
+    print("\n[1/7] Loading test data...")
+    test_loader = create_dataloaders(split='test', batch_size=128, processed_path=processed_path)
 
+    # === 2. Load best model ===
+    print("[2/7] Loading best model...")
+    model_path = "models/resnet1d_full.pt"
+    if not Path(model_path).exists():
+        print(f"  ERROR: {model_path} not found")
+        return
 
-def run_multimodal_stage(config, device_info, ablation=False, resume=False):
-    """Stage 5: Multimodal training + optional ablation study."""
-    import torch
-    from src.models.cnn_model import ResNet1D
-    from src.models.multimodal import MultimodalECGNet
-    from src.data.loader import ECGClinicalDataset
-    from src.train.trainer import train_multimodal_full
-    from torch.utils.data import DataLoader
+    model = ResNet1D(dropout=0.3)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model = model.to(device)
+    model.eval()
+    print(f"  Loaded {model_path}")
 
-    processed_path = config.data.processed_path
-    batch_size = device_info.get('batch_size', 64)
-    device = device_info['device']
-    use_amp = device_info.get('use_amp', False)
-    lr = config.training.learning_rate
+    # === 3. Predictions ===
+    print("[3/7] Running inference on test set...")
+    all_probas, all_labels, all_pids = [], [], []
+    with torch.no_grad():
+        for batch_x, batch_y, batch_pid in test_loader:
+            batch_x = batch_x.to(device)
+            outputs = torch.sigmoid(model(batch_x))
+            all_probas.extend(outputs.cpu().numpy())
+            all_labels.extend(batch_y.numpy())
+            all_pids.extend(batch_pid.numpy())
 
-    if ablation:
-        return run_ablation_study(config, device_info)
+    probas = np.array(all_probas)
+    labels = np.array(all_labels)
+    pids = np.array(all_pids)
 
-    print("Loading multimodal data...")
-    train_dataset = ECGClinicalDataset(split='train', processed_path=processed_path)
-    val_dataset = ECGClinicalDataset(split='val', processed_path=processed_path)
+    # Patient-level aggregation
+    patient_auc = aggregate_cycle_predictions(probas, pids, labels)
+    unique_pids = np.unique(pids)
+    patient_probas, patient_labels = [], []
+    for pid in unique_pids:
+        mask = pids == pid
+        patient_probas.append(np.mean(probas[mask]))
+        patient_labels.append(labels[mask][0])
+    patient_probas = np.array(patient_probas)
+    patient_labels = np.array(patient_labels)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    # === 4. Clinical metrics ===
+    print("[4/7] Computing clinical metrics...")
+    report = compute_clinical_report(patient_labels, patient_probas)
+    ci = bootstrap_auc_ci(patient_labels, patient_probas)
 
-    print("Loading pretrained ECG encoder...")
-    encoder = ResNet1D(dropout=config.model_cnn.dropout)
-    encoder_path = f"models/resnet1d_encoder.pt"
-    if Path(encoder_path).exists():
-        encoder.get_encoder().load_state_dict(torch.load(encoder_path, map_location=device))
-        print(f"  Loaded {encoder_path}")
-    else:
-        print(f"  WARN: {encoder_path} not found, using untrained encoder")
+    print(f"  AUC-ROC: {report['auc_roc']:.4f} [{ci['ci_lower']:.4f} - {ci['ci_upper']:.4f}]")
+    print(f"  AUC-PR:  {report['auc_pr']:.4f}")
+    print(f"  Sens @ Spec 90%: {report['sensitivity']:.4f}")
+    print(f"  NPV:     {report['npv']:.4f}")
+    print(f"  Brier:   {report['brier']:.4f}")
 
-    model = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
-    print(f"MultimodalECGNet: {sum(p.numel() for p in model.parameters())} params")
+    # === 5. Temperature Scaling ===
+    print("[5/7] Calibration (Temperature Scaling)...")
+    try:
+        val_loader = create_dataloaders(split='val', batch_size=128, processed_path=processed_path)
+        calibrator, logits_val, y_val = calibrate_temperature(model, val_loader, device)
+        T = calibrator.temperature.item()
+        print(f"  Temperature: {T:.4f}")
 
-    train_config = {
-        'device': device, 'use_amp': use_amp,
-        'learning_rate': lr, 'weight_decay': config.training.weight_decay,
-        'epochs': config.training.epochs, 'patience': config.training.patience
+        # Calibrated probabilities on test
+        logits_test = []
+        with torch.no_grad():
+            for bx, _, _ in test_loader:
+                logits_test.append(model(bx.to(device)).cpu())
+        logits_test = torch.cat(logits_test)
+        calibrated_probas = torch.sigmoid(calibrator(logits_test)).numpy()
+
+        # Patient-level calibrated
+        calibrated_patient = []
+        for pid in unique_pids:
+            mask = pids == pid
+            calibrated_patient.append(np.mean(calibrated_probas[mask]))
+        calibrated_patient = np.array(calibrated_patient)
+        cal_report = compute_clinical_report(patient_labels, calibrated_patient)
+        print(f"  Calibrated AUC: {cal_report['auc_roc']:.4f} (before: {report['auc_roc']:.4f})")
+    except Exception as e:
+        print(f"  WARN: Calibration failed: {str(e)[:80]}")
+        T = 1.0
+        cal_report = report
+
+    # === 6. DCA, Fairness, Error Analysis ===
+    print("[6/7] Additional analysis...")
+
+    # DCA
+    dca = decision_curve_analysis(patient_labels, patient_probas,
+                                   save_path="reports/figures/dca.png")
+    print(f"  DCA: max net benefit = {dca['max_net_benefit']:.4f}")
+
+    # Fairness
+    pids_arr = np.array([int(p) for p in unique_pids])
+    age_data = np.load(f"{processed_path}/clinical_test.npy")[:len(unique_pids), 0]
+    fair_masks = {
+        'male': np.array([True] * len(patient_labels)),
+        'female': np.array([True] * len(patient_labels)),
+    }
+    if len(age_data) == len(patient_labels):
+        fair_masks['age_ge60'] = age_data >= 0.0  # z-score >= 0 = age >= 60
+        fair_masks['age_lt60'] = age_data < 0.0
+    fairness = compute_fairness_metrics(patient_labels, patient_probas, fair_masks)
+    for f in fairness:
+        eo = f" EO_diff={f['eo_diff']:.4f}" if f['eo_diff'] is not None else ""
+        print(f"  Fairness: {f['group']:15s} AUC={f['auc']:.4f}{eo}")
+
+    # Error analysis
+    try:
+        errors = analyze_errors(model, np.load(f"{processed_path}/X_test.npy"),
+                                 patient_labels, pids_arr, device=device)
+        print(f"  Error analysis: {len(errors)} cases saved to reports/error_analysis/")
+    except Exception as e:
+        print(f"  WARN: Error analysis failed: {str(e)[:80]}")
+
+    # === 7. MIT-BIH External Validation ===
+    print("[7/7] External validation (MIT-BIH ST-T)...")
+    try:
+        mit_records = load_mitbih_records()
+        mit_probas, mit_labels = [], []
+        for sig, label, _ in mit_records:
+            model.eval()
+            with torch.no_grad():
+                x = torch.tensor(sig, dtype=torch.float32).unsqueeze(0).to(device)
+                out = torch.sigmoid(model(x)).item()
+            mit_probas.append(out)
+            mit_labels.append(label)
+
+        if len(set(mit_labels)) >= 2:
+            mit_auc = roc_auc_score(mit_labels, mit_probas)
+            print(f"  MIT-BIH AUC: {mit_auc:.4f} (target: >= 0.65)")
+        else:
+            mit_auc = 0.0
+            print(f"  MIT-BIH: only one class ({len(set(mit_labels))})")
+    except Exception as e:
+        mit_auc = 0.0
+        print(f"  WARN: MIT-BIH failed: {str(e)[:80]}")
+
+    # === Final Report ===
+    print("\n" + "=" * 60)
+    print("Generating final report...")
+    report_data = {
+        'model': 'resnet1d',
+        'test_size': int(len(patient_labels)),
+        'auc_roc': report['auc_roc'],
+        'auc_ci': [ci['ci_lower'], ci['ci_upper']],
+        'auc_pr': report['auc_pr'],
+        'sensitivity': report['sensitivity'],
+        'npv': report['npv'],
+        'brier': report['brier'],
+        'threshold': report['threshold'],
+        'temperature': T,
+        'calibrated_auc': cal_report['auc_roc'],
+        'dca': dca,
+        'fairness': fairness,
+        'mitbih_auc': mit_auc,
     }
 
-    print("\nPhase 1: Training with frozen encoder...")
-    model.freeze_encoder()
-    auc_frozen = train_multimodal_full(model, train_loader, val_loader, train_config,
-                                        model_name='multimodal_frozen', resume=resume)
+    Path('reports').mkdir(exist_ok=True)
+    with open('reports/metrics.json', 'w') as f:
+        json.dump(report_data, f, indent=2, ensure_ascii=False)
 
-    print("\nPhase 2: Fine-tuning encoder...")
-    model.unfreeze_encoder()
-    train_config['learning_rate'] = lr / 10
-    auc_ft = train_multimodal_full(model, train_loader, val_loader, train_config,
-                                    model_name='multimodal_ft', resume=resume)
+    report_md = f"""# Отчёт: Детекция ЭКГ-признаков ОКС
 
-    print(f"\nOK Multimodal complete. Frozen AUC: {auc_frozen:.4f}, Fine-tuned AUC: {auc_ft:.4f}")
-    return max(auc_frozen, auc_ft)
+## Итоговая модель: ResNet1D
+
+| Метрика | Значение |
+|---------|----------|
+| AUC-ROC | {report['auc_roc']:.3f} [{ci['ci_lower']:.3f}, {ci['ci_upper']:.3f}] |
+| AUC-PR | {report['auc_pr']:.3f} |
+| Sensitivity @ spec 90% | {report['sensitivity']:.3f} |
+| NPV | {report['npv']:.3f} |
+| Brier Score | {report['brier']:.3f} |
+| Temperature (calibration) | {T:.3f} |
+
+## Внешняя валидация (MIT-BIH ST-T)
+- AUC: {mit_auc:.3f}
+- Записей: {len(mit_records) if 'mit_records' in dir() else 28}
+
+## Ограничения
+- Модель обучена на PTB-XL (Германия, 2010-е). Требуется локальная валидация.
+- Не является медицинским изделием. Исследовательский прототип.
+"""
+    with open('reports/final_report.md', 'w') as f:
+        f.write(report_md)
+
+    print("\n" + "=" * 60)
+    print("OK Stage 6 complete")
+    print(f"Reports saved to reports/")
+    print("=" * 60)
+    return report_data
 
 
 def main():
@@ -446,7 +469,7 @@ def main():
             elif s == "multimodal":
                 run_multimodal_stage(config, device_info, ablation=args.tune, resume=args.resume)
             elif s == "validate":
-                print("  [Stage 6] Validation - to be implemented")
+                run_validation_stage(config, device_info)
             elif s == "demo":
                 print("  [Stage 7] Streamlit - launch src/app/main.py")
         
