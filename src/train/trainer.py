@@ -257,29 +257,18 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
     for batch_idx, (batch_ecg, batch_clin, batch_y, _) in enumerate(loader):
         batch_ecg, batch_clin = batch_ecg.to(device), batch_clin.to(device)
         optimizer.zero_grad()
-        outputs = model(batch_ecg, batch_clin)
-
-        # batch_y shape: [batch_size] (single label) or [batch_size, 4] (multi-label)
-        if batch_y.dim() > 1 and batch_y.shape[1] == 4:
-            batch_y = batch_y.to(device)
-            loss_acs = criterion(outputs['acs'], batch_y[:, 0].float())
-            loss_glzh = nn.BCEWithLogitsLoss()(outputs['glzh'], batch_y[:, 1].float())
-            loss_block = nn.BCEWithLogitsLoss()(outputs['block'], batch_y[:, 2].float())
-            loss_rhythm = nn.CrossEntropyLoss()(outputs['rhythm'], batch_y[:, 3].long())
-            loss = loss_acs + 0.3 * loss_glzh + 0.3 * loss_block + 0.2 * loss_rhythm
-        else:
-            batch_y = batch_y.to(device).float()
-            loss = criterion(outputs['acs'], batch_y)
-
-        optimizer.zero_grad()
 
         if scaler:
             with torch.amp.autocast('cuda'):
-                loss.backward()
+                outputs = model(batch_ecg, batch_clin)
+                loss = _compute_multimodal_loss(outputs, batch_y, criterion, device)
+            scaler.scale(loss).backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
+            outputs = model(batch_ecg, batch_clin)
+            loss = _compute_multimodal_loss(outputs, batch_y, criterion, device)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -291,6 +280,19 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
             print(f"  [{pct:.0f}%] {batch_idx+1}/{n_batches}, loss={loss.item():.4f}")
 
     return total_loss / len(loader)
+
+
+def _compute_multimodal_loss(outputs, batch_y, criterion, device):
+    if batch_y.dim() > 1 and batch_y.shape[1] == 4:
+        batch_y = batch_y.to(device)
+        loss_acs = criterion(outputs['acs'], batch_y[:, 0].float())
+        loss_glzh = nn.BCEWithLogitsLoss()(outputs['glzh'], batch_y[:, 1].float())
+        loss_block = nn.BCEWithLogitsLoss()(outputs['block'], batch_y[:, 2].float())
+        loss_rhythm = nn.CrossEntropyLoss()(outputs['rhythm'], batch_y[:, 3].long())
+        return loss_acs + 0.3 * loss_glzh + 0.3 * loss_block + 0.2 * loss_rhythm
+    else:
+        batch_y = batch_y.to(device).float()
+        return criterion(outputs['acs'], batch_y)
 
 
 def validate_multimodal(model, loader, device):
