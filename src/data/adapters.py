@@ -72,10 +72,14 @@ def validate_uploaded_ecg(signal: np.ndarray, fs: float) -> Tuple[bool, str]:
 
 
 def load_mitbih_records(path: str = None) -> list:
-    """Загрузка MIT-BIH ST-T (28 записей). Автопоиск данных."""
+    """Загрузка MIT-BIH ST-T (28 записей) с полной предобработкой.
+    Возвращает список [(cycles, label, record_id)], cycles = [n_cycles, 12, 350]
+    """
     import wfdb
     from scipy import signal as scipy_signal
     from pathlib import Path
+    from src.preprocessing.filters import preprocess_ecg_signal
+    from src.preprocessing.segmentation import extract_heartbeats, segment_all_leads
 
     if path is None:
         candidates = [
@@ -89,14 +93,12 @@ def load_mitbih_records(path: str = None) -> list:
                 path = c
                 break
         if path is None:
-            # Find by searching
             import glob
             hea_files = glob.glob("**/300.hea", recursive=True)
             if hea_files:
                 path = str(Path(hea_files[0]).parent)
             else:
-                print("  WARN: MIT-BIH data not found. Suggestion:")
-                print("    scp -r D:/ML_ECG/mit-bih-st-change-database-1.0.0 root@IP:data/external/mit-bih-stt/")
+                print("  WARN: MIT-BIH data not found.")
                 return []
 
     records = []
@@ -108,30 +110,53 @@ def load_mitbih_records(path: str = None) -> list:
             rec = wfdb.rdrecord(str(mit_path / str(rid)))
             ann = wfdb.rdann(str(mit_path / str(rid)), 'atr')
 
-            sig = rec.p_signal  # [samples, channels] 2-3 канала
-            fs_orig = rec.fs  # 360 Гц
+            sig = rec.p_signal
+            fs_orig = rec.fs
 
-            # Ресемпл до 500 Гц
+            # Resample to 500 Hz
             target_len = int(sig.shape[0] * 500 / fs_orig)
+            n_ch = min(sig.shape[1], 12)
             sig_resampled = np.zeros((target_len, 12))
-            for ch in range(min(sig.shape[1], 12)):
+            for ch in range(n_ch):
                 sig_resampled[:, ch] = scipy_signal.resample(sig[:, ch], target_len)
+            for ch in range(n_ch, 12):
+                sig_resampled[:, ch] = sig_resampled[:, ch % n_ch]
 
-            # Паддинг до 12 каналов
-            n_channels = sig.shape[1]
-            if n_channels < 12:
-                sig_resampled[:, n_channels:] = 0
+            # Apply standard preprocessing (filter, aVR invert)
+            sig_filtered = preprocess_ecg_signal(sig_resampled, 500)
+            sig_filtered[:, 3] *= -1.0
 
-            # Бинарная метка: есть ли ишемический эпизод
+            # R-peak detection on lead with best amplitude
+            lead_energy = [np.std(sig_filtered[:, ch]) for ch in range(12)]
+            best_lead = np.argmax(lead_energy[:4])
+            beats = extract_heartbeats(sig_filtered, 500, lead_idx=best_lead)
+
+            if len(beats['r_peaks']) < 3:
+                print(f"  WARN: MIT-BIH {rid}: too few R-peaks ({len(beats['r_peaks'])})")
+                continue
+
+            cycles = segment_all_leads(sig_filtered, 500, beats['r_peaks'])
+            if len(cycles) == 0:
+                continue
+
+            # Z-score normalize per-cycle
+            for c in range(len(cycles)):
+                mean_vals = np.mean(cycles[c], axis=0, keepdims=True)
+                std_vals = np.std(cycles[c], axis=0, keepdims=True)
+                cycles[c] = (cycles[c] - mean_vals) / np.maximum(std_vals, 1e-8)
+
+            cycles = np.transpose(cycles, (0, 2, 1))
+
+            # Ischemia label
             has_ischemia = 0
             for sym in ann.symbol:
-                if sym in ('N', 'S', 'T'):  # ишемические коды
+                if sym in ('N', 'S', 'T'):
                     has_ischemia = 1
                     break
 
-            records.append((sig_resampled.astype(np.float32), has_ischemia, rid))
+            records.append((cycles.astype(np.float32), has_ischemia, rid))
         except Exception as e:
-            print(f"  WARN: MIT-BIH record {rid} load failed: {str(e)[:60]}")
+            print(f"  WARN: MIT-BIH record {rid} failed: {str(e)[:80]}")
 
-    print(f"Loaded {len(records)} MIT-BIH records")
+    print(f"Loaded {len(records)} MIT-BIH records (with preprocessing)")
     return records

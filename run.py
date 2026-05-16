@@ -327,13 +327,20 @@ def run_validation_stage(config, device_info):
     try:
         mit_records = load_mitbih_records()
         mit_probas, mit_labels = [], []
-        for sig, label, _ in mit_records:
+        for cycles, label, rid in mit_records:
             model.eval()
+            cycles_probas = []
             with torch.no_grad():
-                x = torch.tensor(sig, dtype=torch.float32).unsqueeze(0).to(device)
-                out = torch.sigmoid(model(x)).item()
-            mit_probas.append(out)
+                batch_size = 128
+                for i in range(0, len(cycles), batch_size):
+                    batch = torch.tensor(cycles[i:i+batch_size], dtype=torch.float32).to(device)
+                    out = torch.sigmoid(model(batch))
+                    cycles_probas.extend(out.cpu().numpy())
+            # Average cycle predictions for this patient
+            record_proba = float(np.mean(cycles_probas))
+            mit_probas.append(record_proba)
             mit_labels.append(label)
+            print(f"  MIT-BIH {rid}: {len(cycles)} cycles, proba={record_proba:.4f}, label={label}")
 
         if len(set(mit_labels)) >= 2:
             mit_auc = roc_auc_score(mit_labels, mit_probas)
