@@ -179,6 +179,157 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
     return best_auc
 
 
+# Functions restored from git history
+def run_ablation_study(config, device_info):
+    import torch, shutil, numpy as np
+    from src.models.cnn_model import ResNet1D
+    from src.models.multimodal import MultimodalECGNet
+    from src.data.loader import create_dataloaders, ECGClinicalDataset
+    from src.train.trainer import train_and_evaluate, train_multimodal_full
+    from src.train.metrics import delong_roc_test
+    from torch.utils.data import DataLoader
+
+    processed_path = config.data.processed_path
+    device = device_info['device']
+    use_amp = device_info.get('use_amp', False)
+    batch_size = device_info.get('batch_size', 64)
+    lr = config.training.learning_rate
+    wd = config.training.weight_decay
+
+    print("\nLoading data for ablation...")
+    ecg_val = create_dataloaders(split='val', batch_size=batch_size, processed_path=processed_path)
+    clin_val = DataLoader(ECGClinicalDataset(split='val', processed_path=processed_path), batch_size=batch_size)
+    results = {}
+
+    # A: ECG-only (ResNet1D)
+    print("\n[A] ECG-only (ResNet1D)...")
+    ecg_train = create_dataloaders(split='train', batch_size=batch_size, processed_path=processed_path)
+    model_a = ResNet1D(dropout=config.model_cnn.dropout)
+    auc_a = train_and_evaluate(model_a, ecg_train, ecg_val, lr=lr, weight_decay=wd, max_epochs=20, device=device, use_amp=use_amp)
+    results['ecg_only'] = {'auc': auc_a}
+
+    # B: Clinical-only (FFN)
+    print("\n[B] Clinical-only (FFN)...")
+    class ClinicalFFN(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.net = torch.nn.Sequential(torch.nn.Linear(2, 32), torch.nn.ReLU(), torch.nn.Dropout(0.3), torch.nn.Linear(32, 1))
+        def forward(self, x):
+            return self.net(x).squeeze(-1)
+
+    clin_train = DataLoader(ECGClinicalDataset(split='train', processed_path=processed_path), batch_size=batch_size)
+    def train_clinical_epoch(model, loader, criterion, optimizer, device):
+        model.train()
+        total_loss = 0.0
+        for batch_ecg, batch_clin, batch_y, _ in loader:
+            batch_clin, batch_y = batch_clin.to(device), batch_y.to(device).float()
+            optimizer.zero_grad()
+            loss = criterion(model(batch_clin), batch_y)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        return total_loss / len(loader)
+
+    def validate_clinical(model, loader, device):
+        model.eval()
+        all_p, all_l, all_pid = [], [], []
+        with torch.no_grad():
+            for _, batch_clin, batch_y, batch_pid in loader:
+                out = torch.sigmoid(model(batch_clin.to(device))).cpu().numpy()
+                all_p.extend(out)
+                all_l.extend(batch_y.numpy())
+                all_pid.extend(batch_pid.numpy())
+        from src.train.trainer import aggregate_cycle_predictions
+        return aggregate_cycle_predictions(np.array(all_p), np.array(all_pid), np.array(all_l))
+
+    model_b = ClinicalFFN().to(device)
+    crit_b = torch.nn.BCEWithLogitsLoss()
+    opt_b = torch.optim.Adam(model_b.parameters(), lr=lr, weight_decay=wd)
+    best_auc_b = 0.0
+    for ep in range(20):
+        loss = train_clinical_epoch(model_b, clin_train, crit_b, opt_b, device)
+        auc = validate_clinical(model_b, clin_val, device)
+        best_auc_b = max(best_auc_b, auc)
+    results['clinical_only'] = {'auc': best_auc_b}
+
+    # C1: Multimodal frozen
+    print("\n[C1] Multimodal frozen...")
+    encoder = ResNet1D(dropout=config.model_cnn.dropout)
+    model_c1 = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
+    model_c1.freeze_encoder()
+    auc_c1 = train_multimodal_full(model_c1, clin_train, clin_val, {'device': device, 'use_amp': use_amp, 'learning_rate': lr, 'weight_decay': wd, 'epochs': 20, 'patience': 5}, model_name='multimodal_frozen')
+    results['multimodal_frozen'] = {'auc': auc_c1}
+
+    # C2: Multimodal fine-tuned
+    print("\n[C2] Multimodal fine-tuned...")
+    encoder = ResNet1D(dropout=config.model_cnn.dropout)
+    model_c2 = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
+    auc_c2 = train_multimodal_full(model_c2, clin_train, clin_val, {'device': device, 'use_amp': use_amp, 'learning_rate': lr / 10, 'weight_decay': wd, 'epochs': 20, 'patience': 5}, model_name='multimodal_ft')
+    results['multimodal_ft'] = {'auc': auc_c2}
+
+    best_name = max(results, key=lambda k: results[k]['auc'])
+    shutil.copy(f"models/{best_name}_full.pt", "models/best_encoder.pt")
+    results['best_model'] = best_name
+
+    print("\nAblation Study Results")
+    for name, r in results.items():
+        if name != 'best_model':
+            print(f"  {name:25s}: AUC = {r['auc']:.4f}")
+    print(f"  Best model: {results['best_model']}")
+    return results
+
+
+def run_multimodal_stage(config, device_info, ablation=False, resume=False):
+    """Stage 5: Multimodal training + optional ablation study."""
+    import torch
+    from src.models.cnn_model import ResNet1D
+    from src.models.multimodal import MultimodalECGNet
+    from src.data.loader import ECGClinicalDataset
+    from src.train.trainer import train_multimodal_full
+    from torch.utils.data import DataLoader
+
+    processed_path = config.data.processed_path
+    batch_size = device_info.get('batch_size', 64)
+    device = device_info['device']
+    use_amp = device_info.get('use_amp', False)
+    lr = config.training.learning_rate
+
+    if ablation:
+        return run_ablation_study(config, device_info)
+
+    print("Loading multimodal data...")
+    train_dataset = ECGClinicalDataset(split='train', processed_path=processed_path)
+    val_dataset = ECGClinicalDataset(split='val', processed_path=processed_path)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+    print("Loading pretrained ECG encoder...")
+    encoder = ResNet1D(dropout=config.model_cnn.dropout)
+    encoder_path = "models/resnet1d_encoder.pt"
+    if Path(encoder_path).exists():
+        encoder.get_encoder().load_state_dict(torch.load(encoder_path, map_location=device))
+        print(f"  Loaded {encoder_path}")
+    else:
+        print(f"  WARN: {encoder_path} not found, using untrained encoder")
+
+    model = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
+    print(f"MultimodalECGNet: {sum(p.numel() for p in model.parameters())} params")
+
+    train_config = {'device': device, 'use_amp': use_amp, 'learning_rate': lr, 'weight_decay': config.training.weight_decay, 'epochs': config.training.epochs, 'patience': config.training.patience}
+
+    print("\nPhase 1: Training with frozen encoder...")
+    model.freeze_encoder()
+    auc_frozen = train_multimodal_full(model, train_loader, val_loader, train_config, model_name='multimodal_frozen', resume=resume)
+
+    print("\nPhase 2: Fine-tuning encoder...")
+    model.unfreeze_encoder()
+    train_config['learning_rate'] = lr / 10
+    auc_ft = train_multimodal_full(model, train_loader, val_loader, train_config, model_name='multimodal_ft', resume=resume)
+
+    print(f"OK Multimodal complete. Frozen AUC: {auc_frozen:.4f}, Fine-tuned AUC: {auc_ft:.4f}")
+    return max(auc_frozen, auc_ft)
+
+
 def run_validation_stage(config, device_info):
     """Stage 6: Validation — test set, метрики, калибровка, fairness, error analysis."""
     import torch, json, numpy as np
