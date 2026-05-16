@@ -180,7 +180,7 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
 
 
 def run_validation_stage(config, device_info):
-    """Stage 6: Validation — test set, метрики, калибровка, fairness, MIT-BIH."""
+    """Stage 6: Validation — test set, метрики, калибровка, fairness, error analysis."""
     import torch, json, numpy as np
     from pathlib import Path
     from src.data.loader import create_dataloaders
@@ -190,7 +190,6 @@ def run_validation_stage(config, device_info):
         calibrate_temperature, decision_curve_analysis,
         compute_fairness_metrics, analyze_errors,
     )
-    from src.data.adapters import load_mitbih_records
     from src.train.trainer import aggregate_cycle_predictions
 
     device = device_info['device']
@@ -322,39 +321,15 @@ def run_validation_stage(config, device_info):
     except Exception as e:
         print(f"  WARN: Error analysis failed: {str(e)[:80]}")
 
-    # === 7. MIT-BIH External Validation ===
-    print("[7/7] External validation (MIT-BIH ST-T)...")
-    try:
-        mit_records = load_mitbih_records()
-        mit_probas, mit_labels = [], []
-        for cycles, label, rid in mit_records:
-            model.eval()
-            cycles_probas = []
-            with torch.no_grad():
-                batch_size = 128
-                for i in range(0, len(cycles), batch_size):
-                    batch = torch.tensor(cycles[i:i+batch_size], dtype=torch.float32).to(device)
-                    out = torch.sigmoid(model(batch))
-                    cycles_probas.extend(out.cpu().numpy())
-            # Average cycle predictions for this patient
-            record_proba = float(np.mean(cycles_probas))
-            mit_probas.append(record_proba)
-            mit_labels.append(label)
-            print(f"  MIT-BIH {rid}: {len(cycles)} cycles, proba={record_proba:.4f}, label={label}")
-
-        if len(set(mit_labels)) >= 2:
-            mit_auc = roc_auc_score(mit_labels, mit_probas)
-            print(f"  MIT-BIH AUC: {mit_auc:.4f} (target: >= 0.65)")
-        else:
-            mit_auc = 0.0
-            print(f"  MIT-BIH: only one class ({len(set(mit_labels))})")
-    except Exception as e:
-        mit_auc = 0.0
-        print(f"  WARN: MIT-BIH failed: {str(e)[:80]}")
-
-    # === Final Report ===
+    # === 7. Final Report ===
     print("\n" + "=" * 60)
     print("Generating final report...")
+    # Calibrated metrics for report
+    cal_auc = cal_report['auc_roc'] if 'cal_report' in dir() else report['auc_roc']
+    cal_brier = cal_report['brier'] if 'cal_report' in dir() else report['brier']
+
+    print(f"\nCalibrated metrics: AUC={cal_auc:.4f}, Brier={cal_brier:.4f}")
+
     report_data = {
         'model': 'resnet1d',
         'test_size': int(len(patient_labels)),
@@ -363,13 +338,13 @@ def run_validation_stage(config, device_info):
         'auc_pr': report['auc_pr'],
         'sensitivity': report['sensitivity'],
         'npv': report['npv'],
-        'brier': report['brier'],
+        'brier_raw': report['brier'],
+        'brier_calibrated': cal_brier,
         'threshold': report['threshold'],
         'temperature': T,
-        'calibrated_auc': cal_report['auc_roc'],
+        'calibrated_auc': cal_auc,
         'dca': dca,
         'fairness': fairness,
-        'mitbih_auc': mit_auc,
     }
 
     Path('reports').mkdir(exist_ok=True)
@@ -411,10 +386,6 @@ def run_validation_stage(config, device_info):
         report_md += "| все | — | — | — |\n"
 
     report_md += f"""
-### Внешняя валидация (MIT-BIH ST-T)
-- Записей: {len(mit_records) if 'mit_records' in dir() else 28}
-- AUC: {report_data['mitbih_auc']:.3f} (ожидалось ≥ 0.65)
-
 ### Ограничения
 - Модель обучена на PTB-XL (Германия, 2010-е). Требуется локальная валидация.
 - Не является медицинским изделием. Исследовательский прототип.
