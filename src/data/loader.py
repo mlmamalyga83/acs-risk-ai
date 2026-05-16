@@ -394,6 +394,13 @@ class ECGClinicalDataset(Dataset):
         self._pids = np.load(self.processed_path / f'patient_ids_{split}.npy')
         self._clinical = np.load(self.processed_path / f'clinical_{split}.npy')
 
+        # Multi-label: [y_acs, y_glzh, y_block, y_rhythm]
+        y_multi_path = self.processed_path / f'y_multi_{split}.npy'
+        if y_multi_path.exists():
+            self.y_multi = np.load(y_multi_path)
+        else:
+            self.y_multi = None
+
     def __len__(self) -> int:
         return self.total
 
@@ -415,6 +422,8 @@ class ECGClinicalDataset(Dataset):
             x = self._current_batch[idx]
 
         clin = self._clinical[idx]
+        if self.y_multi is not None:
+            return x, clin, self.y_multi[idx], self._pids[idx].item()
         return x, clin, self.y[idx].item(), self._pids[idx].item()
 
     @property

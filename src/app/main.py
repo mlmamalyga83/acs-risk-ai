@@ -70,8 +70,23 @@ elif load_method.startswith(""):
     uploaded_file = st.file_uploader("Загрузите файл ЭКГ:",
                                       type=['csv', 'xml', 'dcm', 'hea', 'dat'])
     if uploaded_file:
+        import tempfile, os
         from src.data.adapters import auto_load_ecg
-        st.success(f"Файл загружен: {uploaded_file.name}")
+        suffix = Path(uploaded_file.name).suffix
+        tmp_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp.name
+            sig, fs, info = auto_load_ecg(tmp_path)
+            signal = sig
+            st.success(f"ЭКГ загружена: {uploaded_file.name}")
+            st.info(f"Длительность: {signal.shape[0]/fs:.1f} сек, отведений: {signal.shape[1]}")
+        except Exception as e:
+            st.error(f"Ошибка загрузки: {str(e)}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
 else:
     st.info("Будет использована только клиническая ветвь модели.")

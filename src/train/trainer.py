@@ -256,20 +256,30 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
 
     for batch_idx, (batch_ecg, batch_clin, batch_y, _) in enumerate(loader):
         batch_ecg, batch_clin = batch_ecg.to(device), batch_clin.to(device)
-        batch_y = batch_y.to(device).float()
+        optimizer.zero_grad()
+        outputs = model(batch_ecg, batch_clin)
+
+        # batch_y shape: [batch_size] (single label) or [batch_size, 4] (multi-label)
+        if batch_y.dim() > 1 and batch_y.shape[1] == 4:
+            batch_y = batch_y.to(device)
+            loss_acs = criterion(outputs['acs'], batch_y[:, 0].float())
+            loss_glzh = nn.BCEWithLogitsLoss()(outputs['glzh'], batch_y[:, 1].float())
+            loss_block = nn.BCEWithLogitsLoss()(outputs['block'], batch_y[:, 2].float())
+            loss_rhythm = nn.CrossEntropyLoss()(outputs['rhythm'], batch_y[:, 3].long())
+            loss = loss_acs + 0.3 * loss_glzh + 0.3 * loss_block + 0.2 * loss_rhythm
+        else:
+            batch_y = batch_y.to(device).float()
+            loss = criterion(outputs['acs'], batch_y)
+
         optimizer.zero_grad()
 
         if scaler:
             with torch.amp.autocast('cuda'):
-                outputs = model(batch_ecg, batch_clin)
-                loss = criterion(outputs['acs'], batch_y)
-            scaler.scale(loss).backward()
+                loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
-            outputs = model(batch_ecg, batch_clin)
-            loss = criterion(outputs['acs'], batch_y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -286,18 +296,42 @@ def train_multimodal_epoch(model, loader, criterion, optimizer, device, scaler=N
 def validate_multimodal(model, loader, device):
     """Валидация мультимодальной модели. Возвращает AUC по ACS."""
     model.eval()
-    all_probas, all_labels, all_pids = [], [], []
+    all_acs, all_glzh, all_block, all_rhythm = [], [], [], []
+    all_labels_acs, all_labels_glzh, all_labels_block, all_labels_rhythm = [], [], [], []
+    all_pids = []
 
     with torch.no_grad():
         for batch_ecg, batch_clin, batch_y, batch_pid in loader:
             batch_ecg = batch_ecg.to(device)
             batch_clin = batch_clin.to(device)
             outputs = model(batch_ecg, batch_clin)
-            all_probas.extend(torch.sigmoid(outputs['acs']).cpu().numpy())
-            all_labels.extend(batch_y.numpy())
+
+            all_acs.extend(torch.sigmoid(outputs['acs']).cpu().numpy())
             all_pids.extend(batch_pid.numpy())
 
-    return aggregate_cycle_predictions(np.array(all_probas), np.array(all_pids), np.array(all_labels))
+            if batch_y.dim() > 1 and batch_y.shape[1] == 4:
+                all_labels_acs.extend(batch_y[:, 0].numpy())
+                all_glzh.extend(torch.sigmoid(outputs['glzh']).cpu().numpy())
+                all_labels_glzh.extend(batch_y[:, 1].numpy())
+                all_block.extend(torch.sigmoid(outputs['block']).cpu().numpy())
+                all_labels_block.extend(batch_y[:, 2].numpy())
+                all_rhythm.extend(torch.softmax(outputs['rhythm'], dim=1).cpu().numpy())
+                all_labels_rhythm.extend(batch_y[:, 3].numpy())
+            else:
+                all_labels_acs.extend(batch_y.numpy())
+
+    result = {'acs_auc': aggregate_cycle_predictions(
+        np.array(all_acs), np.array(all_pids), np.array(all_labels_acs))}
+
+    if all_labels_glzh:
+        result['glzh_auc'] = aggregate_cycle_predictions(
+            np.array(all_glzh), np.array(all_pids), np.array(all_labels_glzh))
+        result['block_auc'] = aggregate_cycle_predictions(
+            np.array(all_block), np.array(all_pids), np.array(all_labels_block))
+        result['rhythm_acc'] = np.mean(np.array(all_labels_rhythm) ==
+                                        np.argmax(all_rhythm, axis=1))
+
+    return result['acs_auc']
 
 
 def train_multimodal_full(model, train_loader, val_loader, config, model_name='multimodal', resume=False):
