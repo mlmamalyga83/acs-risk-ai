@@ -171,10 +171,10 @@ def run_cnn_stage(config, device_info, tune=False, resume=False):
     print(f"\nTraining {config.model_cnn.architecture} for {epochs} epochs on {device}...")
     best_auc = train_full(model, train_loader, val_loader, train_config, model_name=config.model_cnn.architecture, resume=resume)
 
-    # Save final models
-    torch.save(model.state_dict(), f"models/{config.model_cnn.architecture}_full.pt")
-    torch.save(model.get_encoder().state_dict(), f"models/{config.model_cnn.architecture}_encoder.pt")
-    print(f"OK models/{config.model_cnn.architecture}_encoder.pt saved")
+    # Save final epoch model (doesn't overwrite best model saved in train_full)
+    torch.save(model.state_dict(), f"models/{config.model_cnn.architecture}_final.pt")
+    torch.save(model.get_encoder().state_dict(), f"models/{config.model_cnn.architecture}_encoder_final.pt")
+    print(f"OK models/{config.model_cnn.architecture}_final.pt saved (best model is _full.pt)")
 
     return best_auc
 
@@ -208,15 +208,21 @@ def run_validation_stage(config, device_info):
     # === 2. Load best model ===
     print("[2/7] Loading best model...")
     model_path = "models/resnet1d_full.pt"
-    if not Path(model_path).exists():
-        print(f"  ERROR: {model_path} not found")
-        return
+    checkpoint_path = "models/checkpoint_resnet1d_epoch5.pt"  # fallback
 
-    model = ResNet1D(dropout=0.3)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model = model.to(device)
-    model.eval()
-    print(f"  Loaded {model_path}")
+    if not Path(model_path).exists():
+        if Path(checkpoint_path).exists():
+            ckpt = torch.load(checkpoint_path, map_location=device)
+            model = ResNet1D(dropout=0.3)
+            model.load_state_dict(ckpt['model_state'])
+            print(f"  Loaded from checkpoint: {checkpoint_path} (epoch {ckpt['epoch']+1})")
+        else:
+            print(f"  ERROR: no model found")
+            return
+    else:
+        model = ResNet1D(dropout=0.3)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        print(f"  Loaded {model_path}")
 
     # === 3. Predictions ===
     print("[3/7] Running inference on test set...")
