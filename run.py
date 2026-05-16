@@ -213,16 +213,17 @@ def run_validation_stage(config, device_info):
     if not Path(model_path).exists():
         if Path(checkpoint_path).exists():
             ckpt = torch.load(checkpoint_path, map_location=device)
-            model = ResNet1D(dropout=0.3)
+            model = ResNet1D(dropout=0.3).to(device)
             model.load_state_dict(ckpt['model_state'])
             print(f"  Loaded from checkpoint: {checkpoint_path} (epoch {ckpt['epoch']+1})")
         else:
             print(f"  ERROR: no model found")
             return
     else:
-        model = ResNet1D(dropout=0.3)
+        model = ResNet1D(dropout=0.3).to(device)
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"  Loaded {model_path}")
+    model.eval()
 
     # === 3. Predictions ===
     print("[3/7] Running inference on test set...")
