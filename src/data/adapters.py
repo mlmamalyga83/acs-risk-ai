@@ -71,11 +71,33 @@ def validate_uploaded_ecg(signal: np.ndarray, fs: float) -> Tuple[bool, str]:
     return True, "OK"
 
 
-def load_mitbih_records(path: str = "data/external/mit-bih-stt") -> list:
-    """Загрузка MIT-BIH ST-T (28 записей). Возвращает список (signal, label)."""
+def load_mitbih_records(path: str = None) -> list:
+    """Загрузка MIT-BIH ST-T (28 записей). Автопоиск данных."""
     import wfdb
     from scipy import signal as scipy_signal
     from pathlib import Path
+
+    if path is None:
+        candidates = [
+            "data/external/mit-bih-stt",
+            "../mit-bih-st-change-database-1.0.0",
+            "/root/mit-bih-st-change-database-1.0.0",
+        ]
+        for c in candidates:
+            p = Path(c)
+            if (p / "300.hea").exists() or (p / "300").with_suffix(".hea").exists():
+                path = c
+                break
+        if path is None:
+            # Find by searching
+            import glob
+            hea_files = glob.glob("**/300.hea", recursive=True)
+            if hea_files:
+                path = str(Path(hea_files[0]).parent)
+            else:
+                print("  WARN: MIT-BIH data not found. Suggestion:")
+                print("    scp -r D:/ML_ECG/mit-bih-st-change-database-1.0.0 root@IP:data/external/mit-bih-stt/")
+                return []
 
     records = []
     mit_path = Path(path)

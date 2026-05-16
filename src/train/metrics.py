@@ -156,8 +156,18 @@ def calibrate_temperature(model, val_loader, device='cuda'):
     logits_all = torch.cat(logits_list)
     y_all = torch.cat(y_list).float()
 
+    # Grid search for best T first
+    best_T = 1.0
+    best_loss = float('inf')
+    for T_candidate in np.linspace(0.1, 10.0, 100):
+        loss = nn.BCEWithLogitsLoss()(logits_all / T_candidate, y_all).item()
+        if loss < best_loss:
+            best_loss = loss
+            best_T = T_candidate
+
     calibrator = TemperatureScaling()
-    optimizer = torch.optim.LBFGS([calibrator.temperature], lr=0.01, max_iter=100)
+    calibrator.temperature.data = torch.tensor(best_T)
+    optimizer = torch.optim.LBFGS([calibrator.temperature], lr=0.1, max_iter=200)
 
     def closure():
         optimizer.zero_grad()
@@ -166,6 +176,7 @@ def calibrate_temperature(model, val_loader, device='cuda'):
         return loss
 
     optimizer.step(closure)
+    print(f"  Temperature: {best_T:.2f} (grid) -> {calibrator.temperature.item():.2f} (optimized)")
     return calibrator, logits_all.numpy(), y_all.numpy()
 
 
