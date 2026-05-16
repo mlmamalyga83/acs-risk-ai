@@ -192,7 +192,7 @@ def run_ablation_study(config, device_info):
     processed_path = config.data.processed_path
     device = device_info['device']
     use_amp = device_info.get('use_amp', False)
-    batch_size = device_info.get('batch_size', 64)
+    batch_size = config.training.batch_size
     lr = config.training.learning_rate
     wd = config.training.weight_decay
 
@@ -289,7 +289,7 @@ def run_multimodal_stage(config, device_info, ablation=False, resume=False):
     from torch.utils.data import DataLoader
 
     processed_path = config.data.processed_path
-    batch_size = device_info.get('batch_size', 64)
+    batch_size = config.training.batch_size
     device = device_info['device']
     use_amp = device_info.get('use_amp', False)
     lr = config.training.learning_rate
