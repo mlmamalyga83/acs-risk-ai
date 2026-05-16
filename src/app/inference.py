@@ -10,16 +10,57 @@ import torch
 from pathlib import Path
 
 
-def load_model(model_path="models/resnet1d_encoder.pt", device="cpu"):
-    """Загружает модель."""
+def load_model(model_path=None, device="cpu"):
+    """Загружает модель. Ищет _full.pt, затем _encoder.pt."""
     from src.models.cnn_model import ResNet1D
 
+    if model_path is None:
+        model_path = "models/resnet1d_full.pt"
+
     model = ResNet1D(dropout=0.3)
-    ckpt = torch.load(model_path, map_location=device)
-    if 'model_state' in ckpt:
-        model.load_state_dict(ckpt['model_state'])
-    else:
-        model.load_state_dict(ckpt)
+
+    full_path = str(Path(model_path).with_suffix('')) + "_full.pt"
+    enc_path = str(Path(model_path).with_suffix('')) + "_encoder.pt"
+
+    loaded = False
+
+    # Try full model
+    full_file = Path(str(model_path).replace("_encoder.pt", "_full.pt"))
+    if not full_file.exists():
+        full_file = Path(model_path)
+    if not full_file.exists():
+        full_file = Path("models/resnet1d_full.pt")
+
+    if full_file.exists():
+        try:
+            ckpt = torch.load(str(full_file), map_location=device)
+            model.load_state_dict(ckpt, strict=False)
+            missing = [k for k in model.state_dict() if k not in ckpt]
+            if len(missing) < 5:
+                loaded = True
+        except Exception:
+            pass
+
+    # Try encoder as fallback
+    if not loaded:
+        enc_file = Path(str(full_file).replace("_full.pt", "_encoder.pt"))
+        if enc_file.exists():
+            try:
+                ckpt = torch.load(str(enc_file), map_location=device)
+                # Map Sequential indices to named keys
+                encoder_keys = list(model.get_encoder().state_dict().keys())
+                seq_keys = list(ckpt.keys())
+                mapping = {}
+                for sk, ek in zip(seq_keys, encoder_keys):
+                    mapping[ek] = ckpt[sk]
+                model.load_state_dict(mapping, strict=False)
+                loaded = True
+            except Exception:
+                pass
+
+    if not loaded:
+        print("  WARN: No model found, using untrained weights")
+
     model = model.to(device)
     model.eval()
     return model
