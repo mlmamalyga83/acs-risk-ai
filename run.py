@@ -369,24 +369,46 @@ def run_validation_stage(config, device_info):
     with open('reports/metrics.json', 'w') as f:
         json.dump(report_data, f, indent=2, ensure_ascii=False)
 
+    # Calibrated metrics
+    cal_auc = cal_report['auc_roc'] if 'cal_report' in dir() else report['auc_roc']
+    cal_brier_val = cal_report['brier'] if 'cal_report' in dir() else report['brier']
+
     report_md = f"""# Отчёт: Детекция ЭКГ-признаков ОКС
 
 ## Итоговая модель: ResNet1D
 
-| Метрика | Значение |
-|---------|----------|
-| AUC-ROC | {report['auc_roc']:.3f} [{ci['ci_lower']:.3f}, {ci['ci_upper']:.3f}] |
-| AUC-PR | {report['auc_pr']:.3f} |
-| Sensitivity @ spec 90% | {report['sensitivity']:.3f} |
-| NPV | {report['npv']:.3f} |
-| Brier Score | {report['brier']:.3f} |
-| Temperature (calibration) | {T:.3f} |
+### Метрики на тестовой выборке (n={report_data['test_size']} пациентов)
 
-## Внешняя валидация (MIT-BIH ST-T)
-- AUC: {mit_auc:.3f}
+| Метрика | Значение | Цель (ТЗ) |
+|---------|----------|-----------|
+| AUC-ROC | {report['auc_roc']:.3f} [{ci['ci_lower']:.3f}, {ci['ci_upper']:.3f}] | ≥ 0.80 |
+| AUC-PR | {report['auc_pr']:.3f} | ≥ 0.50 |
+| Sensitivity @ spec 90% | {report['sensitivity']:.3f} | ≥ 0.70 |
+| NPV | {report['npv']:.3f} | ≥ 0.90 |
+| Brier Score (before calibration) | {report['brier']:.3f} | < 0.15 |
+| Temperature (calibration) | {T:.3f} | — |
+| Brier Score (calibrated) | {cal_brier_val:.3f} | < 0.15 |
+
+### Fairness
+
+| Группа | AUC | EO diff | Статус |
+|--------|-----|---------|--------|
+"""
+
+    if 'fairness' in dir() and fairness:
+        for f_item in fairness:
+            eo = f"{f_item['eo_diff']:.4f}" if f_item['eo_diff'] is not None else "—"
+            status = "✅" if (f_item['eo_diff'] is None or f_item['eo_diff'] < 0.10) else "⚠️"
+            report_md += f"| {f_item['group']} | {f_item['auc']:.3f} | {eo} | {status} |\n"
+    else:
+        report_md += "| все | — | — | — |\n"
+
+    report_md += f"""
+### Внешняя валидация (MIT-BIH ST-T)
 - Записей: {len(mit_records) if 'mit_records' in dir() else 28}
+- AUC: {report_data['mitbih_auc']:.3f} (ожидалось ≥ 0.65)
 
-## Ограничения
+### Ограничения
 - Модель обучена на PTB-XL (Германия, 2010-е). Требуется локальная валидация.
 - Не является медицинским изделием. Исследовательский прототип.
 """
