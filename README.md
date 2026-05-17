@@ -1,70 +1,77 @@
 # ACS ECG Detector
 
 Детекция ЭКГ-признаков Острого Коронарного Синдрома с интерпретацией.
-Мультимодальная модель (ResNet1D + клинические данные), Grad-CAM, Streamlit UI.
+ResNet1D + Grad-CAM + Streamlit UI.
 
 ⚠️ Исследовательский прототип. Не медицинское изделие.
 
-## Установка на сервер с GPU (A5000 и выше)
+## Результаты
 
-### 1. SSH на сервер
-```bash
-ssh root@IP_АДРЕС
-```
+| Модель | AUC-ROC | Статус |
+|--------|---------|--------|
+| CNN (ResNet1D) | **0.876** [0.860-0.893] | ✅ Лучшая |
+| Multimodal (ECG + clinical) | 0.685 | ⚠️ Экспериментальная |
 
-### 2. Скачать код
-```bash
-git clone https://github.com/mlmamalyga83/acs-risk-ai.git
-cd acs-risk-ai
-```
+## Быстрый старт
 
-### 3. Запустить установку
-```bash
-bash scripts/setup_server.sh
-```
+### На ПК (Windows)
 
-### 4. Загрузить данные с ПК
-На вашем ПК (PowerShell):
 ```powershell
-scp D:\ML_ECG\acs-risk-ai\processed.zip root@IP_АДРЕС:/root/acs-risk-ai/
-```
-
-### 5. Распаковать и запустить
-```bash
-unzip -o processed.zip
-source venv/bin/activate
-screen -S ecg_train
-python run.py --stage all --tune
-```
-
-`Ctrl+A` затем `D` — выйти из screen (обучение останется в фоне).
-`screen -r ecg_train` — вернуться.
-
-### 6. Скачать модели на ПК
-```powershell
-scp root@IP_АДРЕС:/root/acs-risk-ai/models/*.pt D:\ML_ECG\acs-risk-ai\models\
-```
-
-## Локальный запуск (без GPU)
-
-```bash
-pip install -r requirements.txt
-python run.py --stage check
-python run.py --stage cnn --cpu-only
-```
-
-## Запуск Streamlit UI
-
-```bash
+cd D:\ML_ECG\acs-risk-ai
 streamlit run src/app/main.py
 # → http://localhost:8501
 ```
 
+### Загрузка моделей с сервера
+
+```powershell
+scp -i "$env:USERPROFILE\.ssh\server_temp_key" root@185.182.110.96:/root/acs-risk-ai/models/resnet1d_encoder.pt D:\ML_ECG\acs-risk-ai\models\
+scp -i "$env:USERPROFILE\.ssh\server_temp_key" root@185.182.110.96:/root/acs-risk-ai/models/resnet1d_full.pt D:\ML_ECG\acs-risk-ai\models\
+```
+
+## Метрики (тестовая выборка, 2831 пациент)
+
+| Метрика | Значение | Цель |
+|---------|----------|------|
+| AUC-ROC | **0.876** [0.860, 0.893] | ≥ 0.80 ✅ |
+| AUC-PR | **0.565** | ≥ 0.50 ✅ |
+| Sens @ Spec 90% | **0.571** | ≥ 0.70 ⚠️ |
+| NPV | **0.930** | ≥ 0.90 ✅ |
+| Fairness (пол) | EO diff = 0.000 | < 0.10 ✅ |
+| Fairness (возраст) | EO diff = 0.003 | < 0.10 ✅ |
+
 ## Данные
 
-- PTB-XL: 21,837 записей — обучение
-- MIT-BIH ST-T: 28 записей — внешняя валидация
+- PTB-XL: 21 799 записей, 18 885 пациентов (Германия)
 
-## Полное ТЗ
+## Структура проекта
 
-См. `TOR_ACS_Risk_Scoring.md`.
+```
+acs-risk-ai/
+├── run.py                    # CLI-оркестратор
+├── config/config.yaml        # Конфигурация
+├── src/
+│   ├── data/loader.py        # Загрузка PTB-XL
+│   ├── preprocessing/        # Фильтры, R-пики, сегментация
+│   ├── models/
+│   │   ├── cnn_model.py      # ResNet1D, Simple1DCNN
+│   │   └── multimodal.py     # MultimodalECGNet (4 heads)
+│   ├── train/
+│   │   ├── trainer.py        # Циклы обучения
+│   │   └── metrics.py        # AUC, DCA, DeLong, Brier
+│   ├── interpret/
+│   │   ├── grad_cam.py       # Grad-CAM для ЭКГ
+│   │   └── visualization.py  # 12-канальные графики
+│   └── app/
+│       ├── main.py           # Streamlit интерфейс
+│       ├── inference.py      # Пайплайн инференса
+│       ├── report_generator.py  # Автозаключение
+│       ├── red_flags.py      # S1Q3T3, гиперкалиемия
+│       └── reference_ranges.py # Референсные значения
+├── models/                   # .pt файлы (2.1 MB каждый)
+├── scripts/
+│   ├── setup_server.sh       # Автоустановка на сервер
+│   └── build_multi_labels.py # Multi-label per split
+├── TOR_ACS_Risk_Scoring.md   # Техническое задание
+└── requirements.txt
+```
