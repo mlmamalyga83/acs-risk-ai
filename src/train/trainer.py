@@ -289,7 +289,7 @@ def _compute_multimodal_loss(outputs, batch_y, criterion, device):
         loss_glzh = nn.BCEWithLogitsLoss()(outputs['glzh'], batch_y[:, 1].float())
         loss_block = nn.BCEWithLogitsLoss()(outputs['block'], batch_y[:, 2].float())
         loss_rhythm = nn.CrossEntropyLoss()(outputs['rhythm'], batch_y[:, 3].long())
-        return loss_acs + 0.3 * loss_glzh + 0.3 * loss_block + 0.2 * loss_rhythm
+        return loss_acs + 0.01 * loss_glzh + 0.01 * loss_block + 0.01 * loss_rhythm
     else:
         batch_y = batch_y.to(device).float()
         return criterion(outputs['acs'], batch_y)

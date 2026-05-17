@@ -315,19 +315,15 @@ def run_multimodal_stage(config, device_info, ablation=False, resume=False):
     model = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
     print(f"MultimodalECGNet: {sum(p.numel() for p in model.parameters())} params")
 
-    train_config = {'device': device, 'use_amp': use_amp, 'learning_rate': lr, 'weight_decay': config.training.weight_decay, 'epochs': config.training.epochs, 'patience': config.training.patience}
+    train_config = {'device': device, 'use_amp': use_amp, 'learning_rate': lr / 10, 'weight_decay': config.training.weight_decay, 'epochs': config.training.epochs, 'patience': config.training.patience}
 
-    print("\nPhase 1: Training with frozen encoder...")
-    model.freeze_encoder()
-    auc_frozen = train_multimodal_full(model, train_loader, val_loader, train_config, model_name='multimodal_frozen', resume=resume)
-
-    print("\nPhase 2: Fine-tuning encoder...")
+    print("\nSkipping Phase 1 (frozen) - encoder already trained (AUC=0.876)")
+    print("Phase 2: Fine-tuning encoder + clinical branch...")
     model.unfreeze_encoder()
-    train_config['learning_rate'] = lr / 10
     auc_ft = train_multimodal_full(model, train_loader, val_loader, train_config, model_name='multimodal_ft', resume=resume)
 
-    print(f"OK Multimodal complete. Frozen AUC: {auc_frozen:.4f}, Fine-tuned AUC: {auc_ft:.4f}")
-    return max(auc_frozen, auc_ft)
+    print(f"OK Multimodal complete. Fine-tuned AUC: {auc_ft:.4f}")
+    return auc_ft
 
 
 def run_validation_stage(config, device_info):
