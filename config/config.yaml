@@ -45,10 +45,10 @@ multimodal:
 
 training:
   seed: 42
-  batch_size: 128                   # A5000 24GB VRAM
+  batch_size: 64                     # A5000 24GB VRAM
   learning_rate: 0.001
   weight_decay: 0.0001
-  epochs: 50
+  epochs: 20
   patience: 10                       # early stopping
   use_amp: true                     # mixed precision на GPU
   gradient_clip: 1.0

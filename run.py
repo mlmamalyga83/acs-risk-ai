@@ -315,7 +315,7 @@ def run_multimodal_stage(config, device_info, ablation=False, resume=False):
     model = MultimodalECGNet(encoder.get_encoder(), clinical_dim=2, embedding_dim=256)
     print(f"MultimodalECGNet: {sum(p.numel() for p in model.parameters())} params")
 
-    train_config = {'device': device, 'use_amp': use_amp, 'learning_rate': lr / 10, 'weight_decay': config.training.weight_decay, 'epochs': config.training.epochs, 'patience': config.training.patience}
+    train_config = {'device': device, 'use_amp': use_amp, 'learning_rate': lr / 50, 'weight_decay': config.training.weight_decay, 'epochs': config.training.epochs, 'patience': config.training.patience}
 
     print("\nSkipping Phase 1 (frozen) - encoder already trained (AUC=0.876)")
     print("Phase 2: Fine-tuning encoder + clinical branch...")
