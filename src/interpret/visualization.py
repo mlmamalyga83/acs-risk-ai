@@ -11,17 +11,17 @@ STANDARD_LEADS = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
 
 def plot_12lead_ecg(signal, fs=500, title="12-канальная ЭКГ", save_path=None):
     """Визуализация 12-канальной ЭКГ (адаптивный размер для Streamlit)."""
-    fig, axes = plt.subplots(4, 3, figsize=(16, 10))
+    fig, axes = plt.subplots(4, 3, figsize=(24, 14))
     time = np.arange(signal.shape[0]) / fs
     
     for i, (ax, lead) in enumerate(zip(axes.flat, STANDARD_LEADS)):
         if i < signal.shape[1]:
             ax.plot(time, signal[:, i], 'k', linewidth=0.5)
-        ax.set_title(lead, fontsize=10)
+        ax.set_title(lead, fontsize=12)
         ax.set_xticks([0, 2, 4, 6, 8, 10])
         ax.grid(True, alpha=0.3)
     
-    fig.suptitle(title, fontsize=14)
+    fig.suptitle(title, fontsize=16)
     plt.tight_layout()
     
     if save_path:
