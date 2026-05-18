@@ -94,8 +94,8 @@ def preprocess_ecg_for_inference(signal, fs=500):
     return np.transpose(cycles, (0, 2, 1)).astype(np.float32)
 
 
-def predict_with_uncertainty(model, cycles, n_samples=50, device="cpu"):
-    """MC Dropout: среднее + 95% CI."""
+def predict_with_uncertainty(model, cycles, n_samples=50, device="cpu", temperature=1.0):
+    """MC Dropout: среднее + 95% CI. temperature > 1 = калибровка."""
     def enable_dropout(m):
         if isinstance(m, torch.nn.Dropout):
             m.train()
@@ -106,8 +106,9 @@ def predict_with_uncertainty(model, cycles, n_samples=50, device="cpu"):
     with torch.no_grad():
         for _ in range(n_samples):
             batch = torch.tensor(cycles, dtype=torch.float32).to(device)
-            out = torch.sigmoid(model(batch))
-            all_probas.append(out.cpu().numpy())
+            logits = model(batch)
+            probas = torch.sigmoid(logits / temperature)
+            all_probas.append(probas.cpu().numpy())
 
     model.eval()
     all_probas = np.array(all_probas)
@@ -161,7 +162,8 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
         return {'error': 'Не удалось обработать ЭКГ: не найдены R-пики'}
 
     # Model inference with MC Dropout
-    uncertainty = predict_with_uncertainty(model, cycles, n_samples=30, device=device)
+    T = 0.5  # Temperature Scaling: T<1 расширяет диапазон вероятностей
+    uncertainty = predict_with_uncertainty(model, cycles, n_samples=30, device=device, temperature=T)
     risk_score = uncertainty['mean']
     risk_ci = uncertainty['ci_95']
 
