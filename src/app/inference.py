@@ -7,7 +7,42 @@
 
 import numpy as np
 import torch
+import torch.nn as nn
 from pathlib import Path
+
+
+RHYTHM_CLASSES = {0: "Синусовый ритм", 1: "Фибрилляция/трепетание предсердий", 2: "Другой ритм"}
+
+
+def load_rhythm_model(model_path=None, device="cpu"):
+    """Загружает модель классификации ритма (3 класса)."""
+    from src.models.cnn_model import ResNet1D
+    
+    if model_path is None:
+        model_path = str(Path(__file__).parent.parent.parent / "models" / "rhythm_model.pt")
+    if not Path(model_path).exists():
+        return None
+    
+    model = ResNet1D(dropout=0.3)
+    model.fc = nn.Linear(256, 3)
+    ckpt = torch.load(model_path, map_location=device)
+    model.load_state_dict(ckpt, strict=False)
+    model.eval()
+    return model.to(device)
+
+
+def detect_rhythm(cycles, rhythm_model, device="cpu"):
+    """Определяет ритм по ЭКГ-циклам. Возвращает (название, уверенность)."""
+    if rhythm_model is None:
+        return "Синусовый ритм", 0.0
+    with torch.no_grad():
+        x = torch.tensor(cycles, dtype=torch.float32).to(device)
+        logits = rhythm_model(x)
+        probs = torch.softmax(logits, dim=1)
+        avg = probs.mean(dim=0)
+        pred = avg.argmax().item()
+        conf = avg[pred].item()
+    return RHYTHM_CLASSES.get(pred, "Синусовый ритм"), conf
 
 
 def load_model(model_path=None, device="cpu"):
@@ -204,7 +239,16 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
     # Auto report with age/sex context
     age_val = clinical.get('age', None)
     sex_val = clinical.get('sex', None)
-    auto_report = generate_auto_report(risk_score, gradcam_map, hr, "Синусовый", red_flags,
+    
+    # Rhythm detection
+    try:
+        rhythm_model = load_rhythm_model(device=device)
+        rhythm_name, rhythm_conf = detect_rhythm(cycles, rhythm_model, device=device)
+    except Exception:
+        rhythm_name = "Синусовый ритм"
+        rhythm_conf = 0.0
+    
+    auto_report = generate_auto_report(risk_score, gradcam_map, hr, rhythm_name, red_flags,
                                         age=age_val, sex=sex_val)
 
     return {
@@ -214,6 +258,8 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
         'gradcam_map': gradcam_map,
         'segment_table': seg_table,
         'heart_rate': hr,
+        'rhythm': rhythm_name,
+        'rhythm_confidence': rhythm_conf,
         'red_flags': red_flags,
         'signal_quality': signal_quality,
         'signal_quality_detail': signal_quality_detail,
