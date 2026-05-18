@@ -10,24 +10,24 @@ STANDARD_LEADS = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
 
 
 def plot_12lead_ecg(signal, fs=500, title="12-канальная ЭКГ", save_path=None):
-    """Визуализация 12-канальной ЭКГ (адаптивный размер для Streamlit)."""
-    fig, axes = plt.subplots(4, 3, figsize=(24, 14))
+    """Визуализация 12-канальной ЭКГ — каждое отведение отдельно на всю ширину.
+    Возвращает список figure (по одному на отведение) для последовательного вывода в Streamlit."""
+    figs = []
     time = np.arange(signal.shape[0]) / fs
     
-    for i, (ax, lead) in enumerate(zip(axes.flat, STANDARD_LEADS)):
+    for i, lead in enumerate(STANDARD_LEADS):
+        fig, ax = plt.subplots(1, 1, figsize=(14, 2))
         if i < signal.shape[1]:
             ax.plot(time, signal[:, i], 'k', linewidth=0.5)
-        ax.set_title(lead, fontsize=12)
+        ax.set_title(lead, fontsize=11, loc='left')
         ax.set_xticks([0, 2, 4, 6, 8, 10])
+        ax.set_xlim(0, 10)
         ax.grid(True, alpha=0.3)
+        ax.tick_params(labelsize=8)
+        plt.tight_layout()
+        figs.append(fig)
     
-    fig.suptitle(title, fontsize=16)
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    return fig
+    return figs
 
 
 def plot_ecg_with_gradcam(ecg_signal, gradcam_map, title="Grad-CAM", save_path=None):

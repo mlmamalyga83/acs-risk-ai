@@ -145,10 +145,11 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
                     unit = ref.get('unit', '')
                     cols[i].metric(ref['name'], f"{val} {unit}".strip(), f"{ref['ref']} {ref['flag']}".strip())
 
-                # ECG plot
+                # ECG plot - каждое отведение отдельно на всю ширину
                 st.subheader("12-канальная ЭКГ")
-                fig = plot_12lead_ecg(signal, title=f"Риск ОКС: {risk:.0%}")
-                st.pyplot(fig, use_container_width=True)
+                figs = plot_12lead_ecg(signal, fs, f"Риск ОКС: {risk:.0%}")
+                for fig in figs:
+                    st.pyplot(fig, use_container_width=True)
 
                 # Conclusion
                 st.subheader("Заключение")
