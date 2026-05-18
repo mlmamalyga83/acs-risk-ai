@@ -124,7 +124,7 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
     
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
     criterion = FocalLoss(gamma=2.0, alpha=0.25)
-    optimizer = torch.optim.Adam([: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
+    # Раздельные LR: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
     encoder_params, fc_params = [], []
     for name, param in model.named_parameters():
         (fc_params if 'fc' in name else encoder_params).append(param)
