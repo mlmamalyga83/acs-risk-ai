@@ -68,7 +68,8 @@ def load_model(model_path=None, device="cpu"):
 
 def preprocess_ecg_for_inference(signal, fs=500):
     """Предобработка ЭКГ: фильтр, R-пики, сегментация, нормализация.
-    Возвращает: [n_cycles, 12, 350] или None при ошибке."""
+    Возвращает: [n_cycles, 12, 350] или None при ошибке.
+    """
     from src.preprocessing.filters import preprocess_ecg_signal
     from src.preprocessing.segmentation import extract_heartbeats, segment_all_leads
 
@@ -80,18 +81,18 @@ def preprocess_ecg_for_inference(signal, fs=500):
 
     beats = extract_heartbeats(signal, fs, lead_idx=best_lead)
     if len(beats['r_peaks']) < 3:
-        return None
+        return None, None
 
     cycles = segment_all_leads(signal, fs, beats['r_peaks'])
     if len(cycles) == 0:
-        return None
+        return None, None
 
     for c in range(len(cycles)):
         mean_vals = np.mean(cycles[c], axis=0, keepdims=True)
         std_vals = np.std(cycles[c], axis=0, keepdims=True)
         cycles[c] = (cycles[c] - mean_vals) / np.maximum(std_vals, 1e-8)
 
-    return np.transpose(cycles, (0, 2, 1)).astype(np.float32)
+    return np.transpose(cycles, (0, 2, 1)).astype(np.float32), beats['r_peaks']
 
 
 def predict_with_uncertainty(model, cycles, n_samples=50, device="cpu", temperature=1.0):
@@ -157,7 +158,7 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
         model = load_model(model_path, device)
 
     # Preprocess
-    cycles = preprocess_ecg_for_inference(signal, fs)
+    cycles, r_peaks = preprocess_ecg_for_inference(signal, fs)
     if cycles is None:
         return {'error': 'Не удалось обработать ЭКГ: не найдены R-пики'}
 
@@ -186,8 +187,8 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
     gradcam_map = grad_cam_1d(model, cycle_tensor)
     seg_table = segment_importance_table(gradcam_map)
 
-    # Heart rate
-    hr = estimate_heart_rate(None)
+    # Heart rate from real R-peaks
+    hr = estimate_heart_rate(r_peaks, fs)
 
     # Red flags
     red_flags = check_red_flags(signal)
@@ -200,8 +201,11 @@ def run_inference(signal, clinical, model=None, fs=500, model_path="models/resne
         'tremor': "Нет" if np.std(signal[:, 0]) < 0.05 else "Есть",
     }
 
-    # Auto report
-    auto_report = generate_auto_report(risk_score, gradcam_map, hr, "Синусовый", red_flags)
+    # Auto report with age/sex context
+    age_val = clinical.get('age', None)
+    sex_val = clinical.get('sex', None)
+    auto_report = generate_auto_report(risk_score, gradcam_map, hr, "Синусовый", red_flags,
+                                        age=age_val, sex=sex_val)
 
     return {
         'risk_score': risk_score,
