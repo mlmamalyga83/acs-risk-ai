@@ -17,7 +17,7 @@ LEAD_GROUPS = {
 def _get_affected_wall(affected_leads):
     """Определяет локализацию ИМ по поражённым отведениям."""
     for wall, leads in LEAD_GROUPS.items():
-        if sum(1 for l in affected_leads if l in leads) >= 2:
+        if sum(1 for l in affected_leads if l in leads) >= 1:
             return wall
     return None
 
@@ -115,7 +115,7 @@ def generate_auto_report(risk_score, gradcam_map, heart_rate, rhythm, red_flags,
     return "\n".join(parts)
 
 
-def _find_affected_leads(gradcam_map, threshold=0.5):
+def _find_affected_leads(gradcam_map, threshold=0.3):
     """Находит отведения с высокой активацией Grad-CAM."""
     affected = []
     if gradcam_map is None:

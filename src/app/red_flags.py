@@ -44,16 +44,22 @@ def check_red_flags(ecg_signal, fs=500):
         result['tela'] = True
         result['details'].append("S1Q3T3 — возможна ТЭЛА")
 
-    # Гиперкалиемия: высокий острый T (амплитуда > 50% R)
+    # Гиперкалиемия: высокий острый T (амплитуда > 80% R, T/R > 0.8)
     for lead_idx in [4, 5, 6, 7, 8]:  # V2-V6
         if lead_idx >= ecg_signal.shape[1]:
             continue
         lead = ecg_signal[:, lead_idx]
-        r_amp = np.max(lead[len(lead)//4:3*len(lead)//4])
-        t_amp = np.max(lead[3*len(lead)//4:])
-        if r_amp > 0 and t_amp > 0.5 * r_amp:
-            result['hyperk'] = True
-            result['details'].append(f"Высокий T в {LEAD_NAMES[lead_idx]}")
-            break
+        qrs_zone = lead[len(lead)//4:3*len(lead)//4]
+        t_zone = lead[3*len(lead)//4:]
+        r_amp = np.max(qrs_zone) - np.min(qrs_zone)
+        t_amp = np.max(t_zone) - np.min(t_zone)
+        if r_amp > 0.01 and t_amp > 0.8 * r_amp:
+            # Дополнительная проверка: T должен быть узким (острым)
+            t_max_idx = np.argmax(np.abs(t_zone))
+            t_width = np.sum(np.abs(t_zone) > 0.3 * t_amp) if t_amp > 0 else 0
+            if t_width < len(t_zone) // 3:  # острый T (ширина < 1/3 зоны T)
+                result['hyperk'] = True
+                result['details'].append(f"Высокий острый T в {LEAD_NAMES[lead_idx]}")
+                break
 
     return result
