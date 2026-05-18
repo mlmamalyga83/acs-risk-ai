@@ -32,13 +32,13 @@ context = st.sidebar.radio("Где находится пациент?",
 st.header("Загрузка ЭКГ")
 
 load_method = st.radio("Способ загрузки:",
-                         [" Выбрать пример из базы PTB-XL",
-                          " Загрузить файл с аппарата"])
+                         ["Выбрать пример из базы PTB-XL",
+                          "Загрузить файл с аппарата"])
 
 signal = None
 signal_name = ""
 fs = 500
-if load_method.startswith(""):
+if load_method == "Выбрать пример из базы PTB-XL":
     demo_dir = Path(__file__).parent / "demo_data"
     if demo_dir.exists():
         examples = [f.stem for f in sorted(demo_dir.glob("X_*.npy"))][:10]
