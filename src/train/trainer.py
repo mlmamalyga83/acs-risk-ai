@@ -101,8 +101,19 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
     
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 0.001),
-                                   weight_decay=config.get('weight_decay', 1e-4))
+    
+    # Раздельные LR: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
+    encoder_params, fc_params = [], []
+    for name, param in model.named_parameters():
+        (fc_params if 'fc' in name else encoder_params).append(param)
+    
+    base_lr = config.get('learning_rate', 0.001)
+    optimizer = torch.optim.Adam([
+        {'params': encoder_params, 'lr': base_lr / 10, 
+         'weight_decay': config.get('weight_decay', 1e-4)},
+        {'params': fc_params, 'lr': base_lr * 10, 
+         'weight_decay': 1e-6},
+    ])
     
     total_epochs = config.get('epochs', 50)
     steps_per_epoch = len(train_loader)
