@@ -102,7 +102,7 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
                 st.stop()
 
             clinical = {'age': age, 'sex': sex, 'context': context}
-            result = run_inference(signal, clinical, model=model, device=device)
+            result = run_inference(signal, clinical, fs=fs, model=model, device=device)
 
             if 'error' in result:
                 st.error(result['error'])

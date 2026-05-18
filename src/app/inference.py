@@ -131,7 +131,7 @@ def estimate_heart_rate(r_peaks, fs=500):
     return int(60.0 / mean_rr) if mean_rr > 0 else 75
 
 
-def run_inference(signal, clinical, model=None, model_path="models/resnet1d_encoder.pt", device="cpu"):
+def run_inference(signal, clinical, model=None, fs=500, model_path="models/resnet1d_encoder.pt", device="cpu"):
     """
     Полный пайплайн: от сигнала до результата.
 
@@ -139,6 +139,7 @@ def run_inference(signal, clinical, model=None, model_path="models/resnet1d_enco
         signal: np.ndarray [samples, 12]
         clinical: dict {'age': 62, 'sex': 'M'}
         model: nn.Module или None (загрузит из model_path)
+        fs: частота дискретизации (определяется автоматически при загрузке файла)
         model_path: путь к .pt файлу
         device: 'cpu' или 'cuda'
 
@@ -155,7 +156,7 @@ def run_inference(signal, clinical, model=None, model_path="models/resnet1d_enco
         model = load_model(model_path, device)
 
     # Preprocess
-    cycles = preprocess_ecg_for_inference(signal)
+    cycles = preprocess_ecg_for_inference(signal, fs)
     if cycles is None:
         return {'error': 'Не удалось обработать ЭКГ: не найдены R-пики'}
 
