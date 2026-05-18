@@ -40,20 +40,49 @@ signal_name = ""
 fs = 500
 if load_method == "Выбрать пример из базы PTB-XL":
     demo_dir = Path(__file__).parent / "demo_data"
-    if demo_dir.exists():
-        examples = [f.stem for f in sorted(demo_dir.glob("X_*.npy"))][:10]
-    else:
-        examples = []
-
-    if examples:
-        selected = st.selectbox("Выберите запись:", examples,
-                                 help="Демонстрационные ЭКГ из базы PTB-XL")
-        ecg_path = demo_dir / f"{selected}.npy"
-        if ecg_path.exists():
-            signal = np.load(ecg_path)
-            signal_name = selected
-            fs = 500
-            st.info(f"Загружена запись: {selected}")
+    demo_meta_path = demo_dir / "demo_metadata.csv"
+    
+    if demo_meta_path.exists():
+        import pandas as pd
+        demo_df = pd.read_csv(demo_meta_path)
+        
+        # Группировка по категориям
+        categories = {
+            "Норма": ["Normal"],
+            "ОКС / Инфаркт миокарда": ["ASMI", "IMI", "ALMI", "AMI", "ACS"],
+            "Блокады": ["CLBBB", "CRBBB", "1AVB"],
+            "Другие заболевания": ["LVH", "AFIB"]
+        }
+        
+        cat_choice = st.selectbox("Выберите категорию:", list(categories.keys()))
+        selected_diags = categories[cat_choice]
+        
+        cat_df = demo_df[demo_df['diagnosis'].isin(selected_diags)]
+        if len(cat_df) > 0:
+            examples = []
+            for _, r in cat_df.iterrows():
+                fname = f"X_{int(r['ecg_id'])}.npy"
+                fpath = demo_dir / fname
+                if fpath.exists():
+                    scp_short = str(r['scp_codes'])[:50] if 'scp_codes' in r else ''
+                    label = f"{r['diagnosis']} | возраст {int(r['patient_age'])} | {scp_short}"
+                    examples.append((fname, label))
+            
+            if examples:
+                selected_fname = st.selectbox("Выберите запись:", 
+                                                [e[1] for e in examples],
+                                                help="Демонстрационные ЭКГ из базы PTB-XL")
+                idx = [e[1] for e in examples].index(selected_fname)
+                fname = examples[idx][0]
+                ecg_path = demo_dir / fname
+                signal = np.load(ecg_path)
+                signal_name = fname
+                fs = 500
+                st.info(f"Загружена: {fname}")
+            else:
+                st.warning("Нет примеров в этой категории.")
+        else:
+            st.warning("Нет примеров в этой категории.")
     else:
         st.warning("Демо-примеры не найдены.")
 
