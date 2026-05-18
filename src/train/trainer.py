@@ -123,7 +123,7 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
             print(f"Resumed from {latest.name} (epoch {ckpt['epoch']+1})")
     
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
-    criterion = FocalLoss(gamma=2.0, alpha=0.25)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
     # Раздельные LR: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
     encoder_params, fc_params = [], []
     for name, param in model.named_parameters():
