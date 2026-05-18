@@ -52,6 +52,7 @@ if load_method.startswith(""):
         if ecg_path.exists():
             signal = np.load(ecg_path)
             signal_name = selected
+            fs = 500
             st.info(f"Загружена запись: {selected}")
     else:
         st.warning("Демо-примеры не найдены.")
