@@ -63,18 +63,28 @@ else:
                                       help="Поддерживаемые форматы: CSV, Philips XML, DICOM, WFDB (.hea+.dat)")
     if uploaded_file:
         import tempfile, os
-        from src.data.adapters import auto_load_ecg
-        suffix = Path(uploaded_file.name).suffix
+        from src.data.adapters import auto_load_ecg, validate_uploaded_ecg
+        suffix = Path(uploaded_file.name).suffix.lower()
+        
+        if suffix == '.hea':
+            st.warning("WFDB (.hea) требует файл .dat рядом. "
+                       "Если .dat не загружен — используйте формат CSV.")
+        
         tmp_path = ""
         try:
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(uploaded_file.getvalue())
                 tmp_path = tmp.name
             sig, fs, info = auto_load_ecg(tmp_path)
-            signal = sig
-            signal_name = uploaded_file.name
-            st.success(f"ЭКГ загружена: {uploaded_file.name}")
-            st.info(f"Длительность: {signal.shape[0]/fs:.1f} сек, отведений: {signal.shape[1]}")
+            
+            ok, msg = validate_uploaded_ecg(sig, fs)
+            if not ok:
+                st.error(f"ЭКГ не прошла проверку: {msg}")
+            else:
+                signal = sig
+                signal_name = uploaded_file.name
+                st.success(f"ЭКГ загружена: {uploaded_file.name}")
+                st.info(f"Длительность: {signal.shape[0]/fs:.1f} сек, отведений: {signal.shape[1]}")
         except Exception as e:
             st.error(f"Ошибка загрузки: {str(e)}")
         finally:

@@ -19,7 +19,7 @@ def load_ecg_csv(filepath: str, fs: float = 500.0) -> Tuple[np.ndarray, float, D
     with open(filepath, encoding='utf-8', errors='replace') as f:
         first_line = f.readline().strip()
     
-    sep = ',' if ',' in first_line else (';' if ';' in first_line else None)
+    sep = ',' if ',' in first_line else (';' if ';' in first_line else ('\t' if '\t' in first_line else None))
     df = pd.read_csv(filepath, sep=sep, encoding='utf-8', engine='python')
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
