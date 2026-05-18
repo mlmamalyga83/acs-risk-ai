@@ -4,11 +4,26 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import roc_auc_score
 from src.data.loader import create_dataloaders
+
+
+class FocalLoss(nn.Module):
+    """Focal Loss: фокус на сложных примерах, γ=2, α=0.25."""
+    def __init__(self, gamma=2.0, alpha=0.25):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+    
+    def forward(self, logits, targets):
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+        pt = torch.exp(-bce)
+        focal = self.alpha * (1 - pt) ** self.gamma * bce
+        return focal.mean()
 
 
 def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
@@ -20,6 +35,14 @@ def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
     
     for batch_idx, (batch_x, batch_y, _) in enumerate(loader):
         batch_x, batch_y = batch_x.to(device), batch_y.to(device).float()
+        
+        # MixUp augmentation (50% вероятности)
+        if np.random.random() < 0.5:
+            lam = np.random.beta(0.5, 0.5)
+            perm = torch.randperm(batch_x.size(0), device=device)
+            batch_x = lam * batch_x + (1 - lam) * batch_x[perm]
+            batch_y = lam * batch_y + (1 - lam) * batch_y[perm]
+        
         optimizer.zero_grad()
         
         if scaler:
@@ -100,9 +123,8 @@ def train_full(model, train_loader, val_loader, config, model_name='model', resu
             print(f"Resumed from {latest.name} (epoch {ckpt['epoch']+1})")
     
     pos_weight = (len(train_loader.dataset) - np.sum(train_loader.dataset.labels)) / max(np.sum(train_loader.dataset.labels), 1)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight]).to(device))
-    
-    # Раздельные LR: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
+    criterion = FocalLoss(gamma=2.0, alpha=0.25)
+    optimizer = torch.optim.Adam([: encoder медленно (lr/10), FC быстро (lr*10) + защита от weight_decay
     encoder_params, fc_params = [], []
     for name, param in model.named_parameters():
         (fc_params if 'fc' in name else encoder_params).append(param)
