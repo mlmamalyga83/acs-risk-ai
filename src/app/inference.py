@@ -191,6 +191,11 @@ def run_inference(signal, clinical, model=None, model_path="models/resnet1d_enco
 
     # Signal quality
     signal_quality = "Хорошее" if np.std(signal) > 1e-5 else "Плохое"
+    signal_quality_detail = {
+        'snr_label': "Хорошее" if np.std(signal) > 0.05 else ("Среднее" if np.std(signal) > 0.01 else "Плохое"),
+        'noise_50hz': "Нет" if np.std(signal[:, 0]) < 0.1 else "Есть",
+        'tremor': "Нет" if np.std(signal[:, 0]) < 0.05 else "Есть",
+    }
 
     # Auto report
     auto_report = generate_auto_report(risk_score, gradcam_map, hr, "Синусовый", red_flags)
@@ -204,6 +209,7 @@ def run_inference(signal, clinical, model=None, model_path="models/resnet1d_enco
         'heart_rate': hr,
         'red_flags': red_flags,
         'signal_quality': signal_quality,
+        'signal_quality_detail': signal_quality_detail,
         'auto_report': auto_report,
         'n_cycles': len(cycles),
     }

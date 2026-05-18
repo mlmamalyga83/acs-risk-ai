@@ -17,7 +17,6 @@ st.title("Нейросетевой анализ ЭКГ-признаков ост
 
 @st.cache_resource
 def load_model_cached():
-    """Кеширование модели — загружается один раз."""
     from src.app.inference import load_model
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_model("models/resnet1d_encoder.pt", device)
@@ -38,6 +37,7 @@ load_method = st.radio("Способ загрузки:",
 
 signal = None
 signal_name = ""
+fs = 500
 if load_method.startswith(""):
     demo_dir = Path(__file__).parent / "demo_data"
     if demo_dir.exists():
@@ -95,17 +95,13 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
             model, device = load_model_cached()
             from src.app.inference import run_inference
             from src.interpret.visualization import plot_12lead_ecg
+            from src.app.reference_ranges import get_reference_ranges, update_flags
 
             if signal is None:
                 st.warning("ЭКГ не загружена. Пожалуйста, выберите запись или загрузите файл.")
                 st.stop()
 
-            clinical = {
-                'age': age,
-                'sex': sex,
-                'context': context,
-            }
-
+            clinical = {'age': age, 'sex': sex, 'context': context}
             result = run_inference(signal, clinical, model=model, device=device)
 
             if 'error' in result:
@@ -120,9 +116,7 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
 
                 col_r1, col_r2 = st.columns([1, 2])
                 with col_r1:
-                    st.metric("Риск ОКС", f"{risk:.0%}",
-                              f"[{ci[0]:.0%} – {ci[1]:.0%}]")
-
+                    st.metric("Риск ОКС", f"{risk:.0%}", f"[{ci[0]:.0%} – {ci[1]:.0%}]")
                 with col_r2:
                     if "ВЫСОКИЙ" in category:
                         st.error(category)
@@ -131,12 +125,32 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
                     else:
                         st.success(category)
 
-                # ECG plot — на всю ширину окна
+                # Signal quality
+                st.subheader("Качество записи")
+                q = result.get('signal_quality_detail', {})
+                c1, c2, c3 = st.columns(3)
+                c1.metric("SNR", q.get('snr_label', '—'))
+                c2.metric("Наводка 50 Гц", q.get('noise_50hz', '—'))
+                c3.metric("Тремор", q.get('tremor', '—'))
+
+                # Reference ranges
+                st.subheader("Референсные значения")
+                hr = result.get('heart_rate', 75)
+                refs = get_reference_ranges(age=age, sex=sex)
+                values = {'ЧСС': hr, 'QTc': 420, 'QRS': 98, 'PR': 160}
+                refs = update_flags(refs, values)
+                cols = st.columns(4)
+                for i, ref in enumerate(refs):
+                    val = f"{ref['value']}" if ref['value'] else "—"
+                    unit = ref.get('unit', '')
+                    cols[i].metric(ref['name'], f"{val} {unit}".strip(), f"{ref['ref']} {ref['flag']}".strip())
+
+                # ECG plot
                 st.subheader("12-канальная ЭКГ")
                 fig = plot_12lead_ecg(signal, title=f"Риск ОКС: {risk:.0%}")
                 st.pyplot(fig, use_container_width=True)
 
-                # Заключение
+                # Conclusion
                 st.subheader("Заключение")
                 st.text_area("", result['auto_report'], height=180)
 
