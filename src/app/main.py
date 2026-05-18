@@ -10,15 +10,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-st.set_page_config(page_title="ACS ECG Detector", page_icon="", layout="wide")
+st.set_page_config(page_title="Нейросетевой анализ ЭКГ", page_icon="", layout="wide")
 
-st.title(" ACS ECG Detector")
-st.caption("Детекция ЭКГ-признаков Острого Коронарного Синдрома")
-
-st.warning("""
-WARN **Исследовательский прототип. Не является медицинским изделием.**
-Решение всегда принимает врач. Не для клинического применения без независимой валидации.
-""")
+st.title("Нейросетевой анализ ЭКГ-признаков острого коронарного синдрома")
 
 
 @st.cache_resource
@@ -35,21 +29,15 @@ st.sidebar.header("Клинический контекст")
 context = st.sidebar.radio("Где находится пациент?",
                             ["Приёмное отделение", "Поликлиника", "Стационар"])
 
-st.sidebar.header("Факторы, влияющие на ЭКГ")
-pacemaker = st.sidebar.checkbox("ЭКС")
-digoxin = st.sidebar.checkbox("Дигоксин")
-ckd = st.sidebar.checkbox("ХБП / диализ")
-lbbb = st.sidebar.checkbox("Блокада ЛНПГ")
-
 # Main area
 st.header("Загрузка ЭКГ")
 
 load_method = st.radio("Способ загрузки:",
                          [" Выбрать пример из базы PTB-XL",
-                          " Загрузить файл с аппарата",
-                          "  Только клинические данные"])
+                          " Загрузить файл с аппарата"])
 
 signal = None
+signal_name = ""
 if load_method.startswith(""):
     demo_dir = Path(__file__).parent / "demo_data"
     if demo_dir.exists():
@@ -58,17 +46,20 @@ if load_method.startswith(""):
         examples = []
 
     if examples:
-        selected = st.selectbox("Выберите запись:", examples)
+        selected = st.selectbox("Выберите запись:", examples,
+                                 help="Демонстрационные ЭКГ из базы PTB-XL")
         ecg_path = demo_dir / f"{selected}.npy"
         if ecg_path.exists():
             signal = np.load(ecg_path)
+            signal_name = selected
             st.info(f"Загружена запись: {selected}")
     else:
         st.warning("Демо-примеры не найдены.")
 
-elif load_method.startswith(""):
+else:
     uploaded_file = st.file_uploader("Загрузите файл ЭКГ:",
-                                      type=['csv', 'xml', 'dcm', 'hea', 'dat'])
+                                      type=['csv', 'xml', 'dcm', 'hea', 'dat'],
+                                      help="Поддерживаемые форматы: CSV, Philips XML, DICOM, WFDB (.hea+.dat)")
     if uploaded_file:
         import tempfile, os
         from src.data.adapters import auto_load_ecg
@@ -80,6 +71,7 @@ elif load_method.startswith(""):
                 tmp_path = tmp.name
             sig, fs, info = auto_load_ecg(tmp_path)
             signal = sig
+            signal_name = uploaded_file.name
             st.success(f"ЭКГ загружена: {uploaded_file.name}")
             st.info(f"Длительность: {signal.shape[0]/fs:.1f} сек, отведений: {signal.shape[1]}")
         except Exception as e:
@@ -87,9 +79,6 @@ elif load_method.startswith(""):
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-
-else:
-    st.info("Будет использована только клиническая ветвь модели.")
 
 # Clinical data
 st.header("Клинические данные")
@@ -105,12 +94,11 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
         try:
             model, device = load_model_cached()
             from src.app.inference import run_inference
-            from src.app.reference_ranges import get_reference_ranges
             from src.interpret.visualization import plot_12lead_ecg
 
             if signal is None:
-                signal_fake = np.random.randn(5000, 12) * 0.1
-                signal = signal_fake.astype(np.float32)
+                st.warning("ЭКГ не загружена. Пожалуйста, выберите запись или загрузите файл.")
+                st.stop()
 
             clinical = {
                 'age': age,
@@ -143,36 +131,16 @@ if st.button(" Рассчитать риск ОКС", type="primary", use_contai
                     else:
                         st.success(category)
 
-                # Additional results
-                st.subheader("Дополнительные результаты")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("P(ГЛЖ)", f"{min(risk * 0.3, 0.5):.0%}")
-                c2.metric("P(блокада)", f"{min(risk * 0.15, 0.3):.0%}")
-                c3.metric("Ритм", "Синусовый")
-                c4.metric("Red flags", "ТЭЛА" if result['red_flags']['tela'] else "Нет")
-
-                # ECG plot
+                # ECG plot — на всю ширину окна
                 st.subheader("12-канальная ЭКГ")
                 fig = plot_12lead_ecg(signal, title=f"Риск ОКС: {risk:.0%}")
-                st.pyplot(fig)
+                st.pyplot(fig, use_container_width=True)
 
-                # Grad-CAM heatmap info
-                if result['gradcam_map'] is not None:
-                    st.subheader("Интерпретация модели (Grad-CAM)")
-                    seg_df = result['segment_table']
-                    st.dataframe(seg_df.style.highlight_max(axis=1, color='lightcoral'))
-
-                # Auto report
-                st.subheader("Автоматическое заключение")
+                # Заключение
+                st.subheader("Заключение")
                 st.text_area("", result['auto_report'], height=180)
-
-                col_b1, col_b2, col_b3 = st.columns(3)
-                col_b1.button(" Скопировать")
-                col_b2.button(" Скачать PDF")
-                col_b3.button(" Печать")
 
         except Exception as e:
             st.error(f"Ошибка анализа: {str(e)}")
 
 st.divider()
-st.caption("ACS ECG Detector v25.0  OpenCode AI  2026")

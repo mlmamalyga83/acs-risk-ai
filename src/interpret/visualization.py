@@ -10,8 +10,8 @@ STANDARD_LEADS = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
 
 
 def plot_12lead_ecg(signal, fs=500, title="12-канальная ЭКГ", save_path=None):
-    """Визуализация 12-канальной ЭКГ в клиническом формате (43)."""
-    fig, axes = plt.subplots(4, 3, figsize=(15, 10))
+    """Визуализация 12-канальной ЭКГ (адаптивный размер для Streamlit)."""
+    fig, axes = plt.subplots(4, 3, figsize=(16, 10))
     time = np.arange(signal.shape[0]) / fs
     
     for i, (ax, lead) in enumerate(zip(axes.flat, STANDARD_LEADS)):
